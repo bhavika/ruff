@@ -1,0 +1,21 @@
+---
+source: src/isort/mod.rs
+expression: checks
+---
+- kind: UnsortedImports
+  location:
+    row: 1
+    column: 0
+  end_location:
+    row: 19
+    column: 0
+  fix:
+    patch:
+      content: "import os\nfrom contextlib import contextmanager\nfrom logging import getLogger\nfrom typing import Optional, Union\nfrom unittest.mock import patch\n\nfrom comet_ml import API, BaseExperiment, ExistingExperiment, Experiment\nfrom comet_ml.exceptions import CometRestApiException\nfrom merlin_pipelines.constants import (\n    MERLIN_PROJECT_NAME_ENV,\n    MERLIN_PROJECT_PATH_ENV,\n    SHOPIFY_TEAM_NAME_ENV,\n)\nfrom merlin_pipelines.plugins.cometml.constants import COMET_GIT_DIRECTORY_ENV\nfrom merlin_pipelines.plugins.cometml.exceptions import WrappedCometApiException\n"
+      location:
+        row: 1
+        column: 0
+      end_location:
+        row: 19
+        column: 0
+
