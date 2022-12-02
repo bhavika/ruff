@@ -7,15 +7,15 @@ expression: checks
     row: 1
     column: 0
   end_location:
-    row: 19
+    row: 17
     column: 0
   fix:
     patch:
-      content: "import os\nfrom contextlib import contextmanager\nfrom logging import getLogger\nfrom typing import Optional, Union\nfrom unittest.mock import patch\n\nfrom comet_ml import API, BaseExperiment, ExistingExperiment, Experiment\nfrom comet_ml.exceptions import CometRestApiException\nfrom merlin_pipelines.constants import (\n    MERLIN_PROJECT_NAME_ENV,\n    MERLIN_PROJECT_PATH_ENV,\n    SHOPIFY_TEAM_NAME_ENV,\n)\nfrom merlin_pipelines.plugins.cometml.constants import COMET_GIT_DIRECTORY_ENV\nfrom merlin_pipelines.plugins.cometml.exceptions import WrappedCometApiException\n"
+      content: "import os\nfrom contextlib import contextmanager\nfrom logging import getLogger\nfrom typing import Optional, Union\nfrom unittest.mock import patch\n\nfrom local_module.constants import BAR_CONSTANT, FOO_CONSTANT, STAR_CONSTANT\nfrom local_module.plugins.third_party_module.constants import CONSTANT_ENV\nfrom local_module.plugins.third_party_module.exceptions import ThirdPartyModuleException\nfrom third_party_module import API, AnotherAPI\nfrom third_party_module.exceptions import ThirdPartyRestException\n"
       location:
         row: 1
         column: 0
       end_location:
-        row: 19
+        row: 17
         column: 0
 
