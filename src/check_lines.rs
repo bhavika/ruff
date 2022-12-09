@@ -7,12 +7,12 @@ use rustpython_parser::ast::Location;
 
 use crate::ast::types::Range;
 use crate::autofix::Fix;
-use crate::checks::{Check, CheckCode, CheckKind};
+use crate::checks::{Check, CheckCode, CheckKind, CODE_REDIRECTS};
 use crate::noqa;
-use crate::noqa::Directive;
+use crate::noqa::{is_file_exempt, Directive};
 use crate::settings::Settings;
 
-// Regex from PEP263
+// Regex from PEP263.
 static CODING_COMMENT_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[ \t\f]*#.*?coding[:=][ \t]*utf-?8").unwrap());
 
@@ -20,19 +20,18 @@ static URL_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https?://\S+$").unwra
 
 /// Whether the given line is too long and should be reported.
 fn should_enforce_line_length(line: &str, length: usize, limit: usize) -> bool {
-    if length > limit {
-        let mut chunks = line.split_whitespace();
-        if let (Some(first), Some(_)) = (chunks.next(), chunks.next()) {
-            // Do not enforce the line length for commented lines that end with a URL
-            // or contain only a single word.
-            !(first == "#" && chunks.last().map_or(true, |c| URL_REGEX.is_match(c)))
-        } else {
-            // Single word / no printable chars - no way to make the line shorter
-            false
-        }
-    } else {
-        false
+    if length <= limit {
+        return false;
     }
+    let mut chunks = line.split_whitespace();
+    let (Some(first), Some(_)) = (chunks.next(), chunks.next()) else {
+        // Single word / no printable chars - no way to make the line shorter
+        return false;
+    };
+
+    // Do not enforce the line length for commented lines that end with a URL
+    // or contain only a single word.
+    !(first == "#" && chunks.last().map_or(true, |c| URL_REGEX.is_match(c)))
 }
 
 pub fn check_lines(
@@ -43,9 +42,9 @@ pub fn check_lines(
     autofix: bool,
     ignore_noqa: bool,
 ) {
-    let enforce_unnecessary_coding_comment = settings.enabled.contains(&CheckCode::U009);
+    let enforce_unnecessary_coding_comment = settings.enabled.contains(&CheckCode::UP009);
     let enforce_line_too_long = settings.enabled.contains(&CheckCode::E501);
-    let enforce_noqa = settings.enabled.contains(&CheckCode::M001);
+    let enforce_noqa = settings.enabled.contains(&CheckCode::RUF100);
 
     let mut noqa_directives: IntMap<usize, (Directive, Vec<&str>)> = IntMap::default();
     let mut line_checks = vec![];
@@ -58,8 +57,11 @@ pub fn check_lines(
     }
 
     macro_rules! add_if {
-        ($check:expr, $noqa:expr) => {{
-            match $noqa {
+        ($check:expr, $noqa_lineno:expr, $line:expr) => {{
+            match noqa_directives
+                .entry($noqa_lineno)
+                .or_insert_with(|| (noqa::extract_noqa_directive($line), vec![]))
+            {
                 (Directive::All(..), matches) => {
                     matches.push($check.kind.code().as_ref());
                     if ignore_noqa {
@@ -67,7 +69,7 @@ pub fn check_lines(
                     }
                 }
                 (Directive::Codes(.., codes), matches) => {
-                    if codes.contains(&$check.kind.code().as_ref()) {
+                    if noqa::includes($check.kind.code(), codes) {
                         matches.push($check.kind.code().as_ref());
                         if ignore_noqa {
                             line_checks.push($check);
@@ -83,12 +85,18 @@ pub fn check_lines(
 
     let lines: Vec<&str> = contents.lines().collect();
     for (lineno, line) in lines.iter().enumerate() {
+        // If we hit an exemption for the entire file, bail.
+        if is_file_exempt(line) {
+            checks.drain(..);
+            return;
+        }
+
         // Grab the noqa (logical) line number for the current (physical) line.
         // If there are newlines at the end of the file, they won't be represented in
         // `noqa_line_for`, so fallback to the current line.
         let noqa_lineno = noqa_line_for.get(&(lineno + 1)).unwrap_or(&(lineno + 1)) - 1;
 
-        // Enforce unnecessary coding comments (U009).
+        // Enforce unnecessary coding comments (UP009).
         if enforce_unnecessary_coding_comment {
             if lineno < 2 {
                 // PEP3120 makes utf-8 the default encoding.
@@ -106,11 +114,7 @@ pub fn check_lines(
                             Location::new(lineno + 2, 0),
                         ));
                     }
-
-                    let noqa = noqa_directives.entry(noqa_lineno).or_insert_with(|| {
-                        (noqa::extract_noqa_directive(lines[noqa_lineno]), vec![])
-                    });
-                    add_if!(check, noqa);
+                    add_if!(check, noqa_lineno, lines[noqa_lineno]);
                 }
             }
         }
@@ -135,7 +139,7 @@ pub fn check_lines(
                     ignored.push(index);
                 }
                 (Directive::Codes(.., codes), matches) => {
-                    if codes.contains(&check.kind.code().as_ref()) {
+                    if noqa::includes(check.kind.code(), codes) {
                         matches.push(check.kind.code().as_ref());
                         ignored.push(index);
                     }
@@ -155,11 +159,7 @@ pub fn check_lines(
                         end_location: Location::new(lineno + 1, line_length),
                     },
                 );
-
-                let noqa = noqa_directives
-                    .entry(noqa_lineno)
-                    .or_insert_with(|| (noqa::extract_noqa_directive(lines[noqa_lineno]), vec![]));
-                add_if!(check, noqa);
+                add_if!(check, noqa_lineno, lines[noqa_lineno]);
             }
         }
     }
@@ -179,14 +179,11 @@ pub fn check_lines(
 
             let lineno = lines.len() - 1;
             let noqa_lineno = noqa_line_for.get(&(lineno + 1)).unwrap_or(&(lineno + 1)) - 1;
-            let noqa = noqa_directives
-                .entry(noqa_lineno)
-                .or_insert_with(|| (noqa::extract_noqa_directive(lines[noqa_lineno]), vec![]));
-            add_if!(check, noqa);
+            add_if!(check, noqa_lineno, lines[noqa_lineno]);
         }
     }
 
-    // Enforce that the noqa directive was actually used (M001).
+    // Enforce that the noqa directive was actually used (RUF100).
     if enforce_noqa {
         for (row, (directive, matches)) in noqa_directives {
             match directive {
@@ -212,6 +209,7 @@ pub fn check_lines(
                     let mut invalid_codes = vec![];
                     let mut valid_codes = vec![];
                     for code in codes {
+                        let code = CODE_REDIRECTS.get(code).map_or(code, AsRef::as_ref);
                         if matches.contains(&code) || settings.external.contains(code) {
                             valid_codes.push(code.to_string());
                         } else {
@@ -269,13 +267,12 @@ mod tests {
     #[test]
     fn e501_non_ascii_char() {
         let line = "'\u{4e9c}' * 2"; // 7 in UTF-32, 9 in UTF-8.
-        let noqa_line_for: IntMap<usize, usize> = IntMap::default();
         let check_with_max_line_length = |line_length: usize| {
             let mut checks: Vec<Check> = vec![];
             check_lines(
                 &mut checks,
                 line,
-                &noqa_line_for,
+                &IntMap::default(),
                 &Settings {
                     line_length,
                     ..Settings::for_rule(CheckCode::E501)

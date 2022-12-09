@@ -4,18 +4,32 @@ expression: checks
 ---
 - kind: UnsortedImports
   location:
+    row: 7
+    column: 0
+  end_location:
+    row: 8
+    column: 0
+  fix:
+    content: "import sys\n\n"
+    location:
+      row: 7
+      column: 0
+    end_location:
+      row: 8
+      column: 0
+- kind: UnsortedImports
+  location:
     row: 9
     column: 0
   end_location:
     row: 11
     column: 0
   fix:
-    patch:
-      content: "import abc\nimport collections\n"
-      location:
-        row: 9
-        column: 0
-      end_location:
-        row: 11
-        column: 0
+    content: "import abc\nimport collections\n"
+    location:
+      row: 9
+      column: 0
+    end_location:
+      row: 11
+      column: 0
 

@@ -17,6 +17,7 @@ use std::process::ExitCode;
 use std::sync::mpsc::channel;
 use std::time::Instant;
 
+use ::ruff::autofix::fixer;
 use ::ruff::checks::{CheckCode, CheckKind};
 use ::ruff::cli::{collect_per_file_ignores, extract_log_level, Cli};
 use ::ruff::fs::iter_python_files;
@@ -29,12 +30,12 @@ use ::ruff::settings::types::SerializationFormat;
 use ::ruff::settings::{pyproject, Settings};
 #[cfg(feature = "update-informer")]
 use ::ruff::updates;
-use ::ruff::{cache, commands};
+use ::ruff::{cache, commands, fs};
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use colored::Colorize;
 use log::{debug, error};
-use notify::{raw_watcher, RecursiveMode, Watcher};
+use notify::{recommended_watcher, RecursiveMode, Watcher};
 #[cfg(not(target_family = "wasm"))]
 use rayon::prelude::*;
 use rustpython_ast::Location;
@@ -60,14 +61,23 @@ fn read_from_stdin() -> Result<String> {
     Ok(buffer)
 }
 
-fn run_once_stdin(settings: &Settings, filename: &Path, autofix: bool) -> Result<Diagnostics> {
+fn run_once_stdin(
+    settings: &Settings,
+    filename: &Path,
+    autofix: &fixer::Mode,
+) -> Result<Diagnostics> {
     let stdin = read_from_stdin()?;
-    let mut diagnostics = lint_stdin(filename, &stdin, settings, &autofix.into())?;
+    let mut diagnostics = lint_stdin(filename, &stdin, settings, autofix)?;
     diagnostics.messages.sort_unstable();
     Ok(diagnostics)
 }
 
-fn run_once(files: &[PathBuf], settings: &Settings, cache: bool, autofix: bool) -> Diagnostics {
+fn run_once(
+    files: &[PathBuf],
+    settings: &Settings,
+    cache: bool,
+    autofix: &fixer::Mode,
+) -> Diagnostics {
     // Collect all the files to check.
     let start = Instant::now();
     let paths: Vec<Result<DirEntry, walkdir::Error>> = files
@@ -83,7 +93,7 @@ fn run_once(files: &[PathBuf], settings: &Settings, cache: bool, autofix: bool) 
             match entry {
                 Ok(entry) => {
                     let path = entry.path();
-                    lint_path(path, settings, &cache.into(), &autofix.into())
+                    lint_path(path, settings, &cache.into(), autofix)
                         .map_err(|e| (Some(path.to_owned()), e.to_string()))
                 }
                 Err(e) => Err((
@@ -99,6 +109,7 @@ fn run_once(files: &[PathBuf], settings: &Settings, cache: bool, autofix: bool) 
                             kind: CheckKind::IOError(message),
                             location: Location::default(),
                             end_location: Location::default(),
+                            fix: None,
                             filename: path.to_string_lossy().to_string(),
                             source: None,
                         }])
@@ -199,10 +210,12 @@ fn inner_main() -> Result<ExitCode> {
     }
 
     // Find the project root and pyproject.toml.
-    let project_root = pyproject::find_project_root(&cli.files);
-    let pyproject = cli
-        .config
-        .or_else(|| pyproject::find_pyproject_toml(project_root.as_ref()));
+    let config: Option<PathBuf> = cli.config;
+    let project_root = config.as_ref().map_or_else(
+        || pyproject::find_project_root(&cli.files),
+        |config| config.parent().map(fs::normalize_path),
+    );
+    let pyproject = config.or_else(|| pyproject::find_pyproject_toml(project_root.as_ref()));
 
     // Reconcile configuration from pyproject.toml and command-line arguments.
     let mut configuration =
@@ -266,7 +279,13 @@ fn inner_main() -> Result<ExitCode> {
     }
 
     // Extract settings for internal use.
-    let fix_enabled: bool = configuration.fix;
+    let autofix = if configuration.fix {
+        fixer::Mode::Apply
+    } else if matches!(configuration.format, SerializationFormat::Json) {
+        fixer::Mode::Generate
+    } else {
+        fixer::Mode::None
+    };
     let settings = Settings::from_configuration(configuration, project_root.as_ref())?;
 
     // Now that we've inferred the appropriate log level, add some debug
@@ -299,10 +318,7 @@ fn inner_main() -> Result<ExitCode> {
 
     let printer = Printer::new(&settings.format, &log_level);
     if cli.watch {
-        if settings.format != SerializationFormat::Text {
-            eprintln!("Warning: --format 'text' is used in watch mode.");
-        }
-        if fix_enabled {
+        if matches!(autofix, fixer::Mode::Generate | fixer::Mode::Apply) {
             eprintln!("Warning: --fix is not enabled in watch mode.");
         }
         if cli.add_noqa {
@@ -311,17 +327,20 @@ fn inner_main() -> Result<ExitCode> {
         if cli.autoformat {
             eprintln!("Warning: --autoformat is not enabled in watch mode.");
         }
+        if settings.format != SerializationFormat::Text {
+            eprintln!("Warning: --format 'text' is used in watch mode.");
+        }
 
         // Perform an initial run instantly.
         printer.clear_screen()?;
         printer.write_to_user("Starting linter in watch mode...\n");
 
-        let messages = run_once(&cli.files, &settings, cache_enabled, false);
+        let messages = run_once(&cli.files, &settings, cache_enabled, &fixer::Mode::None);
         printer.write_continuously(&messages)?;
 
         // Configure the file watcher.
         let (tx, rx) = channel();
-        let mut watcher = raw_watcher(tx)?;
+        let mut watcher = recommended_watcher(tx)?;
         for file in &cli.files {
             watcher.watch(file, RecursiveMode::Recursive)?;
         }
@@ -329,14 +348,19 @@ fn inner_main() -> Result<ExitCode> {
         loop {
             match rx.recv() {
                 Ok(e) => {
-                    if let Some(path) = e.path {
-                        if path.to_string_lossy().ends_with(".py") {
-                            printer.clear_screen()?;
-                            printer.write_to_user("File change detected...\n");
+                    let paths = e?.paths;
+                    let py_changed = paths.iter().any(|p| {
+                        p.extension()
+                            .map(|ext| ext.eq_ignore_ascii_case("py"))
+                            .unwrap_or_default()
+                    });
+                    if py_changed {
+                        printer.clear_screen()?;
+                        printer.write_to_user("File change detected...\n");
 
-                            let messages = run_once(&cli.files, &settings, cache_enabled, false);
-                            printer.write_continuously(&messages)?;
-                        }
+                        let messages =
+                            run_once(&cli.files, &settings, cache_enabled, &fixer::Mode::None);
+                        printer.write_continuously(&messages)?;
                     }
                 }
                 Err(e) => return Err(e.into()),
@@ -359,16 +383,16 @@ fn inner_main() -> Result<ExitCode> {
         let diagnostics = if is_stdin {
             let filename = cli.stdin_filename.unwrap_or_else(|| "-".to_string());
             let path = Path::new(&filename);
-            run_once_stdin(&settings, path, fix_enabled)?
+            run_once_stdin(&settings, path, &autofix)?
         } else {
-            run_once(&cli.files, &settings, cache_enabled, fix_enabled)
+            run_once(&cli.files, &settings, cache_enabled, &autofix)
         };
 
         // Always try to print violations (the printer itself may suppress output),
         // unless we're writing fixes via stdin (in which case, the transformed
         // source code goes to stdout).
-        if !(is_stdin && fix_enabled) {
-            printer.write_once(&diagnostics)?;
+        if !(is_stdin && matches!(autofix, fixer::Mode::Apply)) {
+            printer.write_once(&diagnostics, &autofix)?;
         }
 
         // Check for updates if we're in a non-silent log level.

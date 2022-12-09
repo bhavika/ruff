@@ -9,7 +9,8 @@ use itertools::iterate;
 use rustpython_parser::ast::Location;
 use serde::Serialize;
 
-use crate::checks::{CheckCode, CheckKind};
+use crate::autofix::{fixer, Fix};
+use crate::checks::CheckCode;
 use crate::fs::relativize_path;
 use crate::linter::Diagnostics;
 use crate::logging::LogLevel;
@@ -19,9 +20,9 @@ use crate::tell_user;
 
 #[derive(Serialize)]
 struct ExpandedMessage<'a> {
-    kind: &'a CheckKind,
     code: &'a CheckCode,
     message: String,
+    fix: Option<&'a Fix>,
     location: Location,
     end_location: Location,
     filename: &'a str,
@@ -45,27 +46,26 @@ impl<'a> Printer<'a> {
 
     fn pre_text(&self, diagnostics: &Diagnostics) {
         if self.log_level >= &LogLevel::Default {
-            if diagnostics.fixed > 0 {
-                println!(
-                    "Found {} error(s) ({} fixed).",
-                    diagnostics.messages.len(),
-                    diagnostics.fixed,
-                );
-            } else if !diagnostics.messages.is_empty() {
-                println!("Found {} error(s).", diagnostics.messages.len());
+            let fixed = diagnostics.fixed;
+            let remaining = diagnostics.messages.len();
+            let total = fixed + remaining;
+            if fixed > 0 {
+                println!("Found {total} error(s) ({fixed} fixed, {remaining} remaining).");
+            } else if remaining > 0 {
+                println!("Found {remaining} error(s).");
             }
         }
     }
 
-    fn post_text(&self, num_fixable: usize) {
+    fn post_text(&self, num_fixable: usize, autofix: &fixer::Mode) {
         if self.log_level >= &LogLevel::Default {
-            if num_fixable > 0 {
+            if num_fixable > 0 && !matches!(autofix, fixer::Mode::Apply) {
                 println!("{num_fixable} potentially fixable with the --fix option.");
             }
         }
     }
 
-    pub fn write_once(&self, diagnostics: &Diagnostics) -> Result<()> {
+    pub fn write_once(&self, diagnostics: &Diagnostics, autofix: &fixer::Mode) -> Result<()> {
         if matches!(self.log_level, LogLevel::Silent) {
             return Ok(());
         }
@@ -85,9 +85,9 @@ impl<'a> Printer<'a> {
                             .messages
                             .iter()
                             .map(|message| ExpandedMessage {
-                                kind: &message.kind,
                                 code: message.kind.code(),
                                 message: message.kind.body(),
+                                fix: message.fix.as_ref(),
                                 location: message.location,
                                 end_location: message.end_location,
                                 filename: &message.filename,
@@ -147,7 +147,7 @@ impl<'a> Printer<'a> {
                     print_message(message);
                 }
 
-                self.post_text(num_fixable);
+                self.post_text(num_fixable, autofix);
             }
             SerializationFormat::Grouped => {
                 self.pre_text(diagnostics);
@@ -190,7 +190,7 @@ impl<'a> Printer<'a> {
                     println!();
                 }
 
-                self.post_text(num_fixable);
+                self.post_text(num_fixable, autofix);
             }
             SerializationFormat::Github => {
                 self.pre_text(diagnostics);

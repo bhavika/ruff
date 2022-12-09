@@ -9,15 +9,7 @@ expression: checks
   end_location:
     row: 203
     column: 7
-  fix:
-    patch:
-      content: "\n"
-      location:
-        row: 201
-        column: 0
-      end_location:
-        row: 201
-        column: 0
+  fix: ~
 - kind: BlankLineAfterSummary
   location:
     row: 210
@@ -26,12 +18,11 @@ expression: checks
     row: 215
     column: 7
   fix:
-    patch:
-      content: "\n"
-      location:
-        row: 211
-        column: 0
-      end_location:
-        row: 213
-        column: 0
+    content: "\n"
+    location:
+      row: 211
+      column: 0
+    end_location:
+      row: 213
+      column: 0
 
