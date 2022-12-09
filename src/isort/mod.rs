@@ -296,7 +296,6 @@ fn categorize_imports<'a>(
     known_first_party: &BTreeSet<String>,
     known_third_party: &BTreeSet<String>,
     extra_standard_library: &BTreeSet<String>,
-    force_to_top: &BTreeSet<String>,
 ) -> BTreeMap<ImportType, ImportBlock<'a>> {
     let mut block_by_type: BTreeMap<ImportType, ImportBlock> = BTreeMap::default();
     // Categorize `StmtKind::Import`.
@@ -308,7 +307,6 @@ fn categorize_imports<'a>(
             known_first_party,
             known_third_party,
             extra_standard_library,
-            force_to_top
         );
         block_by_type
             .entry(import_type)
@@ -325,7 +323,6 @@ fn categorize_imports<'a>(
             known_first_party,
             known_third_party,
             extra_standard_library,
-            force_to_top
         );
         block_by_type
             .entry(classification)
@@ -342,7 +339,6 @@ fn categorize_imports<'a>(
             known_first_party,
             known_third_party,
             extra_standard_library,
-            force_to_top
         );
         block_by_type
             .entry(classification)
@@ -359,7 +355,6 @@ fn categorize_imports<'a>(
             known_first_party,
             known_third_party,
             extra_standard_library,
-            force_to_top
         );
         block_by_type
             .entry(classification)
@@ -494,7 +489,6 @@ pub fn format_imports(
         known_first_party,
         known_third_party,
         extra_standard_library,
-        force_to_top
     );
 
     let mut output = RopeBuilder::new();
