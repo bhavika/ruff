@@ -77,6 +77,16 @@ pub struct Options {
     )]
     pub extra_standard_library: Option<Vec<String>>,
     pub force_to_top: Option<Vec<String>>,
+    #[option(
+        doc = r#"
+            A list of modules to import first in their respective sections.
+        "#,
+        default = r#"[]"#,
+        value_type = "Vec<String>",
+        example = r#"
+            force-to-top = ["path"]
+        "#
+    )]
 }
 
 #[derive(Debug, Hash, Default)]
