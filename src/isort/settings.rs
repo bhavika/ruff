@@ -80,11 +80,9 @@ pub struct Options {
     /// A list of modules to consider standard-library, in addition to those
     /// known to Ruff in advance.
     pub extra_standard_library: Option<Vec<String>>,
+    /// A list of modules to import first in their respective sections.
     #[option(
-        doc = r#"
-            A list of modules to import first in their respective sections.
-        "#,
-        default = r#"[]"#,
+       default = r#"[]"#,
         value_type = "Vec<String>",
         example = r#"
             force-to-top = ["path"]
