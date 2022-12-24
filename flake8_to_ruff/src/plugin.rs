@@ -1,10 +1,11 @@
 use std::collections::{BTreeSet, HashMap};
+use std::fmt;
 use std::str::FromStr;
 
 use anyhow::anyhow;
 use ruff::checks_gen::CheckCodePrefix;
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Plugin {
     Flake8Annotations,
     Flake8Bandit,
@@ -12,14 +13,18 @@ pub enum Plugin {
     Flake8Bugbear,
     Flake8Builtins,
     Flake8Comprehensions,
+    Flake8Datetimez,
     Flake8Debugger,
     Flake8Docstrings,
+    Flake8ErrMsg,
     Flake8Eradicate,
     Flake8Print,
     Flake8Quotes,
     Flake8Return,
+    Flake8Simplify,
     Flake8TidyImports,
     McCabe,
+    PandasVet,
     PEP8Naming,
     Pyupgrade,
 }
@@ -35,18 +40,53 @@ impl FromStr for Plugin {
             "flake8-bugbear" => Ok(Plugin::Flake8Bugbear),
             "flake8-builtins" => Ok(Plugin::Flake8Builtins),
             "flake8-comprehensions" => Ok(Plugin::Flake8Comprehensions),
+            "flake8-datetimez" => Ok(Plugin::Flake8Datetimez),
             "flake8-debugger" => Ok(Plugin::Flake8Debugger),
             "flake8-docstrings" => Ok(Plugin::Flake8Docstrings),
-            "flake8-eradicate" => Ok(Plugin::Flake8BlindExcept),
+            "flake8-eradicate" => Ok(Plugin::Flake8Eradicate),
+            "flake8-errmsg" => Ok(Plugin::Flake8ErrMsg),
             "flake8-print" => Ok(Plugin::Flake8Print),
             "flake8-quotes" => Ok(Plugin::Flake8Quotes),
             "flake8-return" => Ok(Plugin::Flake8Return),
+            "flake8-simplify" => Ok(Plugin::Flake8Simplify),
             "flake8-tidy-imports" => Ok(Plugin::Flake8TidyImports),
             "mccabe" => Ok(Plugin::McCabe),
+            "pandas-vet" => Ok(Plugin::PandasVet),
             "pep8-naming" => Ok(Plugin::PEP8Naming),
             "pyupgrade" => Ok(Plugin::Pyupgrade),
             _ => Err(anyhow!("Unknown plugin: {string}")),
         }
+    }
+}
+
+impl fmt::Debug for Plugin {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Plugin::Flake8Annotations => "flake8-annotations",
+                Plugin::Flake8Bandit => "flake8-bandit",
+                Plugin::Flake8BlindExcept => "flake8-blind-except",
+                Plugin::Flake8Bugbear => "flake8-bugbear",
+                Plugin::Flake8Builtins => "flake8-builtins",
+                Plugin::Flake8Comprehensions => "flake8-comprehensions",
+                Plugin::Flake8Datetimez => "flake8-datetimez",
+                Plugin::Flake8Debugger => "flake8-debugger",
+                Plugin::Flake8Docstrings => "flake8-docstrings",
+                Plugin::Flake8Eradicate => "flake8-eradicate",
+                Plugin::Flake8ErrMsg => "flake8-errmsg",
+                Plugin::Flake8Print => "flake8-print",
+                Plugin::Flake8Quotes => "flake8-quotes",
+                Plugin::Flake8Return => "flake8-return",
+                Plugin::Flake8Simplify => "flake8-simplify",
+                Plugin::Flake8TidyImports => "flake8-tidy-imports",
+                Plugin::McCabe => "mccabe",
+                Plugin::PandasVet => "pandas-vet",
+                Plugin::PEP8Naming => "pep8-naming",
+                Plugin::Pyupgrade => "pyupgrade",
+            }
+        )
     }
 }
 
@@ -55,20 +95,26 @@ impl Plugin {
         match self {
             Plugin::Flake8Annotations => CheckCodePrefix::ANN,
             Plugin::Flake8Bandit => CheckCodePrefix::S,
+            // TODO(charlie): Handle rename of `B` to `BLE`.
             Plugin::Flake8BlindExcept => CheckCodePrefix::BLE,
             Plugin::Flake8Bugbear => CheckCodePrefix::B,
             Plugin::Flake8Builtins => CheckCodePrefix::A,
             Plugin::Flake8Comprehensions => CheckCodePrefix::C4,
+            Plugin::Flake8Datetimez => CheckCodePrefix::DTZ,
             Plugin::Flake8Debugger => CheckCodePrefix::T1,
             Plugin::Flake8Docstrings => CheckCodePrefix::D,
+            // TODO(charlie): Handle rename of `E` to `ERA`.
             Plugin::Flake8Eradicate => CheckCodePrefix::ERA,
+            Plugin::Flake8ErrMsg => CheckCodePrefix::EM,
             Plugin::Flake8Print => CheckCodePrefix::T2,
             Plugin::Flake8Quotes => CheckCodePrefix::Q,
             Plugin::Flake8Return => CheckCodePrefix::RET,
-            Plugin::Flake8TidyImports => CheckCodePrefix::I25,
+            Plugin::Flake8Simplify => CheckCodePrefix::SIM,
+            Plugin::Flake8TidyImports => CheckCodePrefix::TID25,
             Plugin::McCabe => CheckCodePrefix::C9,
+            Plugin::PandasVet => CheckCodePrefix::PD,
             Plugin::PEP8Naming => CheckCodePrefix::N,
-            Plugin::Pyupgrade => CheckCodePrefix::U,
+            Plugin::Pyupgrade => CheckCodePrefix::UP,
         }
     }
 
@@ -80,6 +126,7 @@ impl Plugin {
             Plugin::Flake8Bugbear => vec![CheckCodePrefix::B],
             Plugin::Flake8Builtins => vec![CheckCodePrefix::A],
             Plugin::Flake8Comprehensions => vec![CheckCodePrefix::C4],
+            Plugin::Flake8Datetimez => vec![CheckCodePrefix::DTZ],
             Plugin::Flake8Debugger => vec![CheckCodePrefix::T1],
             Plugin::Flake8Docstrings => {
                 // Use the user-provided docstring.
@@ -98,13 +145,16 @@ impl Plugin {
                 DocstringConvention::PEP8.select()
             }
             Plugin::Flake8Eradicate => vec![CheckCodePrefix::ERA],
+            Plugin::Flake8ErrMsg => vec![CheckCodePrefix::EM],
             Plugin::Flake8Print => vec![CheckCodePrefix::T2],
             Plugin::Flake8Quotes => vec![CheckCodePrefix::Q],
             Plugin::Flake8Return => vec![CheckCodePrefix::RET],
-            Plugin::Flake8TidyImports => vec![CheckCodePrefix::I25],
+            Plugin::Flake8Simplify => vec![CheckCodePrefix::SIM],
+            Plugin::Flake8TidyImports => vec![CheckCodePrefix::TID],
             Plugin::McCabe => vec![CheckCodePrefix::C9],
+            Plugin::PandasVet => vec![CheckCodePrefix::PD],
             Plugin::PEP8Naming => vec![CheckCodePrefix::N],
-            Plugin::Pyupgrade => vec![CheckCodePrefix::U],
+            Plugin::Pyupgrade => vec![CheckCodePrefix::UP],
         }
     }
 }
@@ -162,6 +212,7 @@ impl DocstringConvention {
                 // CheckCodePrefix::D214,
                 // CheckCodePrefix::D215,
                 CheckCodePrefix::D300,
+                CheckCodePrefix::D301,
                 CheckCodePrefix::D400,
                 CheckCodePrefix::D402,
                 CheckCodePrefix::D403,
@@ -209,6 +260,7 @@ impl DocstringConvention {
                 CheckCodePrefix::D214,
                 CheckCodePrefix::D215,
                 CheckCodePrefix::D300,
+                CheckCodePrefix::D301,
                 CheckCodePrefix::D400,
                 // CheckCodePrefix::D402,
                 CheckCodePrefix::D403,
@@ -257,6 +309,7 @@ impl DocstringConvention {
                 CheckCodePrefix::D214,
                 // CheckCodePrefix::D215,
                 CheckCodePrefix::D300,
+                CheckCodePrefix::D301,
                 // CheckCodePrefix::D400,
                 CheckCodePrefix::D402,
                 CheckCodePrefix::D403,
@@ -370,6 +423,9 @@ pub fn infer_plugins_from_options(flake8: &HashMap<String, Option<String>>) -> V
             "staticmethod-decorators" | "staticmethod_decorators" => {
                 plugins.insert(Plugin::PEP8Naming);
             }
+            "max-string-length" | "max_string_length" => {
+                plugins.insert(Plugin::Flake8ErrMsg);
+            }
             _ => {}
         }
     }
@@ -388,15 +444,18 @@ pub fn infer_plugins_from_codes(codes: &BTreeSet<CheckCodePrefix>) -> Vec<Plugin
         Plugin::Flake8Bugbear,
         Plugin::Flake8Builtins,
         Plugin::Flake8Comprehensions,
+        Plugin::Flake8Datetimez,
         Plugin::Flake8Debugger,
         Plugin::Flake8Docstrings,
         Plugin::Flake8Eradicate,
+        Plugin::Flake8ErrMsg,
         Plugin::Flake8Print,
         Plugin::Flake8Quotes,
         Plugin::Flake8Return,
+        Plugin::Flake8Simplify,
         Plugin::Flake8TidyImports,
+        Plugin::PandasVet,
         Plugin::PEP8Naming,
-        Plugin::Pyupgrade,
     ]
     .into_iter()
     .filter(|plugin| {

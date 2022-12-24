@@ -1,4 +1,4 @@
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use rustpython_ast::{Expr, ExprKind, Location, Stmt, StmtKind};
 
 use crate::ast::visitor;
@@ -10,6 +10,7 @@ pub struct Stack<'a> {
     pub ifs: Vec<&'a Stmt>,
     pub elifs: Vec<&'a Stmt>,
     pub refs: FxHashMap<&'a str, Vec<Location>>,
+    pub non_locals: FxHashSet<&'a str>,
     pub assigns: FxHashMap<&'a str, Vec<Location>>,
     pub loops: Vec<(Location, Location)>,
     pub tries: Vec<(Location, Location)>,
@@ -18,6 +19,8 @@ pub struct Stack<'a> {
 #[derive(Default)]
 pub struct ReturnVisitor<'a> {
     pub stack: Stack<'a>,
+    // If we're in an f-string, the location of the defining expression.
+    in_f_string: Option<Location>,
 }
 
 impl<'a> ReturnVisitor<'a> {
@@ -34,7 +37,7 @@ impl<'a> ReturnVisitor<'a> {
                     .assigns
                     .entry(id)
                     .or_insert_with(Vec::new)
-                    .push(expr.location);
+                    .push(self.in_f_string.unwrap_or(expr.location));
                 return;
             }
             _ => {}
@@ -46,6 +49,11 @@ impl<'a> ReturnVisitor<'a> {
 impl<'a> Visitor<'a> for ReturnVisitor<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match &stmt.node {
+            StmtKind::Global { names } | StmtKind::Nonlocal { names } => {
+                self.stack
+                    .non_locals
+                    .extend(names.iter().map(std::string::String::as_str));
+            }
             StmtKind::FunctionDef { .. } | StmtKind::AsyncFunctionDef { .. } => {
                 // Don't recurse.
             }
@@ -70,7 +78,7 @@ impl<'a> Visitor<'a> for ReturnVisitor<'a> {
                         .refs
                         .entry(id)
                         .or_insert_with(Vec::new)
-                        .push(value.location);
+                        .push(self.in_f_string.unwrap_or(value.location));
                 }
 
                 visitor::walk_expr(self, value);
@@ -98,6 +106,7 @@ impl<'a> Visitor<'a> for ReturnVisitor<'a> {
                     .push((stmt.location, stmt.end_location.unwrap()));
                 visitor::walk_stmt(self, stmt);
             }
+
             _ => {
                 visitor::walk_stmt(self, stmt);
             }
@@ -106,12 +115,29 @@ impl<'a> Visitor<'a> for ReturnVisitor<'a> {
 
     fn visit_expr(&mut self, expr: &'a Expr) {
         match &expr.node {
+            ExprKind::Call { .. } => {
+                // Arbitrary function calls can have side effects, so we conservatively treat
+                // every function call as a reference to every known variable.
+                for name in self.stack.assigns.keys() {
+                    self.stack
+                        .refs
+                        .entry(name)
+                        .or_insert_with(Vec::new)
+                        .push(self.in_f_string.unwrap_or(expr.location));
+                }
+            }
             ExprKind::Name { id, .. } => {
                 self.stack
                     .refs
                     .entry(id)
                     .or_insert_with(Vec::new)
-                    .push(expr.location);
+                    .push(self.in_f_string.unwrap_or(expr.location));
+            }
+            ExprKind::JoinedStr { .. } => {
+                let prev_in_f_string = self.in_f_string;
+                self.in_f_string = Some(expr.location);
+                visitor::walk_expr(self, expr);
+                self.in_f_string = prev_in_f_string;
             }
             _ => visitor::walk_expr(self, expr),
         }

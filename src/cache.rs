@@ -3,18 +3,20 @@ use std::fs;
 use std::fs::{create_dir_all, File, Metadata};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use filetime::FileTime;
 use log::error;
+use once_cell::sync::Lazy;
 use path_absolutize::Absolutize;
 use serde::{Deserialize, Serialize};
 
 use crate::autofix::fixer;
 use crate::message::Message;
-use crate::settings::Settings;
+use crate::settings::{flags, Settings};
 
+static CACHE_DIR: Lazy<Option<String>> = Lazy::new(|| std::env::var("RUFF_CACHE_DIR").ok());
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Serialize, Deserialize)]
@@ -34,64 +36,29 @@ struct CheckResult {
     messages: Vec<Message>,
 }
 
-pub enum Mode {
-    ReadWrite,
-    ReadOnly,
-    WriteOnly,
-    None,
+/// Return the cache directory for a given project root. Defers to the
+/// `RUFF_CACHE_DIR` environment variable, if set.
+pub fn cache_dir(project_root: &Path) -> PathBuf {
+    CACHE_DIR
+        .as_ref()
+        .map_or_else(|| project_root.join(".ruff_cache"), PathBuf::from)
 }
 
-impl Mode {
-    fn allow_read(&self) -> bool {
-        match self {
-            Mode::ReadWrite => true,
-            Mode::ReadOnly => true,
-            Mode::WriteOnly => false,
-            Mode::None => false,
-        }
-    }
-
-    fn allow_write(&self) -> bool {
-        match self {
-            Mode::ReadWrite => true,
-            Mode::ReadOnly => false,
-            Mode::WriteOnly => true,
-            Mode::None => false,
-        }
-    }
+fn content_dir() -> &'static Path {
+    Path::new("content")
 }
 
-impl From<bool> for Mode {
-    fn from(value: bool) -> Self {
-        if value {
-            Mode::ReadWrite
-        } else {
-            Mode::None
-        }
-    }
-}
-
-fn cache_dir() -> &'static str {
-    "./.ruff_cache"
-}
-
-fn content_dir() -> &'static str {
-    "content"
-}
-
-fn cache_key(path: &Path, settings: &Settings, autofix: &fixer::Mode) -> u64 {
+fn cache_key<P: AsRef<Path>>(path: P, settings: &Settings, autofix: fixer::Mode) -> u64 {
     let mut hasher = DefaultHasher::new();
     CARGO_PKG_VERSION.hash(&mut hasher);
-    path.absolutize().unwrap().hash(&mut hasher);
+    path.as_ref().absolutize().unwrap().hash(&mut hasher);
     settings.hash(&mut hasher);
     autofix.hash(&mut hasher);
     hasher.finish()
 }
 
-/// Initialize the cache directory.
-pub fn init() -> Result<()> {
-    let path = Path::new(cache_dir());
-
+/// Initialize the cache at the specified `Path`.
+pub fn init(path: &Path) -> Result<()> {
     // Create the cache directories.
     create_dir_all(path.join(content_dir()))?;
 
@@ -110,36 +77,30 @@ pub fn init() -> Result<()> {
     Ok(())
 }
 
-fn write_sync(key: u64, value: &[u8]) -> Result<(), std::io::Error> {
+fn write_sync(cache_dir: &Path, key: u64, value: &[u8]) -> Result<(), std::io::Error> {
     fs::write(
-        Path::new(cache_dir())
-            .join(content_dir())
-            .join(format!("{key:x}")),
+        cache_dir.join(content_dir()).join(format!("{key:x}")),
         value,
     )
 }
 
-fn read_sync(key: u64) -> Result<Vec<u8>, std::io::Error> {
-    fs::read(
-        Path::new(cache_dir())
-            .join(content_dir())
-            .join(format!("{key:x}")),
-    )
+fn read_sync(cache_dir: &Path, key: u64) -> Result<Vec<u8>, std::io::Error> {
+    fs::read(cache_dir.join(content_dir()).join(format!("{key:x}")))
 }
 
 /// Get a value from the cache.
-pub fn get(
-    path: &Path,
+pub fn get<P: AsRef<Path>>(
+    path: P,
     metadata: &Metadata,
     settings: &Settings,
-    autofix: &fixer::Mode,
-    mode: &Mode,
+    autofix: fixer::Mode,
+    cache: flags::Cache,
 ) -> Option<Vec<Message>> {
-    if !mode.allow_read() {
+    if matches!(cache, flags::Cache::Disabled) {
         return None;
     };
 
-    let encoded = read_sync(cache_key(path, settings, autofix)).ok()?;
+    let encoded = read_sync(&settings.cache_dir, cache_key(path, settings, autofix)).ok()?;
     let (mtime, messages) = match bincode::deserialize::<CheckResult>(&encoded[..]) {
         Ok(CheckResult {
             metadata: CacheMetadata { mtime },
@@ -157,15 +118,15 @@ pub fn get(
 }
 
 /// Set a value in the cache.
-pub fn set(
-    path: &Path,
+pub fn set<P: AsRef<Path>>(
+    path: P,
     metadata: &Metadata,
     settings: &Settings,
-    autofix: &fixer::Mode,
+    autofix: fixer::Mode,
     messages: &[Message],
-    mode: &Mode,
+    cache: flags::Cache,
 ) {
-    if !mode.allow_write() {
+    if matches!(cache, flags::Cache::Disabled) {
         return;
     };
 
@@ -176,6 +137,7 @@ pub fn set(
         messages,
     };
     if let Err(e) = write_sync(
+        &settings.cache_dir,
         cache_key(path, settings, autofix),
         &bincode::serialize(&check_result).unwrap(),
     ) {

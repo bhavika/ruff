@@ -1,12 +1,26 @@
+use log::error;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use rustpython_ast::{
-    Arguments, Excepthandler, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind,
+    Arguments, Constant, Excepthandler, ExcepthandlerKind, Expr, ExprKind, Keyword, KeywordData,
+    Location, Stmt, StmtKind,
 };
+use rustpython_parser::lexer;
+use rustpython_parser::lexer::Tok;
 
 use crate::ast::types::Range;
 use crate::SourceCodeLocator;
+
+/// Create an `Expr` with default location from an `ExprKind`.
+pub fn create_expr(node: ExprKind) -> Expr {
+    Expr::new(Location::default(), Location::default(), node)
+}
+
+/// Create a `Stmt` with a default location from a `StmtKind`.
+pub fn create_stmt(node: StmtKind) -> Stmt {
+    Stmt::new(Location::default(), Location::default(), node)
+}
 
 fn collect_call_path_inner<'a>(expr: &'a Expr, parts: &mut Vec<&'a str>) {
     match &expr.node {
@@ -149,15 +163,12 @@ pub fn match_call_path(
 
 static DUNDER_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"__[^\s]+__").unwrap());
 
-pub fn is_assignment_to_a_dunder(node: &StmtKind) -> bool {
+/// Return `true` if the `Stmt` is an assignment to a dunder (like `__all__`).
+pub fn is_assignment_to_a_dunder(stmt: &Stmt) -> bool {
     // Check whether it's an assignment to a dunder, with or without a type
     // annotation. This is what pycodestyle (as of 2.9.1) does.
-    match node {
-        StmtKind::Assign {
-            targets,
-            value: _,
-            type_comment: _,
-        } => {
+    match &stmt.node {
+        StmtKind::Assign { targets, .. } => {
             if targets.len() != 1 {
                 return false;
             }
@@ -166,17 +177,66 @@ pub fn is_assignment_to_a_dunder(node: &StmtKind) -> bool {
                 _ => false,
             }
         }
-        StmtKind::AnnAssign {
-            target,
-            annotation: _,
-            value: _,
-            simple: _,
-        } => match &target.node {
+        StmtKind::AnnAssign { target, .. } => match &target.node {
             ExprKind::Name { id, ctx: _ } => DUNDER_REGEX.is_match(id),
             _ => false,
         },
         _ => false,
     }
+}
+
+/// Return `true` if the `Expr` is a singleton (`None`, `True`, `False`, or
+/// `...`).
+pub fn is_singleton(expr: &Expr) -> bool {
+    matches!(
+        expr.node,
+        ExprKind::Constant {
+            value: Constant::None | Constant::Bool(_) | Constant::Ellipsis,
+            ..
+        }
+    )
+}
+
+/// Return `true` if the `Expr` is a constant or tuple of constants.
+pub fn is_constant(expr: &Expr) -> bool {
+    match &expr.node {
+        ExprKind::Constant { .. } => true,
+        ExprKind::Tuple { elts, .. } => elts.iter().all(is_constant),
+        _ => false,
+    }
+}
+
+/// Return `true` if the `Expr` is a non-singleton constant.
+pub fn is_constant_non_singleton(expr: &Expr) -> bool {
+    is_constant(expr) && !is_singleton(expr)
+}
+
+/// Return the `Keyword` with the given name, if it's present in the list of
+/// `Keyword` arguments.
+pub fn find_keyword<'a>(keywords: &'a [Keyword], keyword_name: &str) -> Option<&'a Keyword> {
+    keywords.iter().find(|keyword| {
+        let KeywordData { arg, .. } = &keyword.node;
+        arg.as_ref().map_or(false, |arg| arg == keyword_name)
+    })
+}
+
+/// Return `true` if an `Expr` is `None`.
+pub fn is_const_none(expr: &Expr) -> bool {
+    matches!(
+        &expr.node,
+        ExprKind::Constant {
+            value: Constant::None,
+            kind: None
+        },
+    )
+}
+
+/// Return `true` if a keyword argument is present with a non-`None` value.
+pub fn has_non_none_keyword(keywords: &[Keyword], keyword: &str) -> bool {
+    find_keyword(keywords, keyword).map_or(false, |keyword| {
+        let KeywordData { value, .. } = &keyword.node;
+        !is_const_none(value)
+    })
 }
 
 /// Extract the names of all handled exceptions.
@@ -229,7 +289,6 @@ pub fn collect_arg_names<'a>(arguments: &'a Arguments) -> FxHashSet<&'a str> {
 
 /// Returns `true` if a call is an argumented `super` invocation.
 pub fn is_super_call_with_arguments(func: &Expr, args: &[Expr]) -> bool {
-    // Check: is this a `super` call?
     if let ExprKind::Name { id, .. } = &func.node {
         id == "super" && !args.is_empty()
     } else {
@@ -311,13 +370,75 @@ pub fn count_trailing_lines(stmt: &Stmt, locator: &SourceCodeLocator) -> usize {
         .count()
 }
 
+/// Return the appropriate visual `Range` for any message that spans a `Stmt`.
+/// Specifically, this method returns the range of a function or class name,
+/// rather than that of the entire function or class body.
+pub fn identifier_range(stmt: &Stmt, locator: &SourceCodeLocator) -> Range {
+    if matches!(
+        stmt.node,
+        StmtKind::ClassDef { .. }
+            | StmtKind::FunctionDef { .. }
+            | StmtKind::AsyncFunctionDef { .. }
+    ) {
+        let contents = locator.slice_source_code_range(&Range::from_located(stmt));
+        for (start, tok, end) in lexer::make_tokenizer(&contents).flatten() {
+            if matches!(tok, Tok::Name { .. }) {
+                let start = to_absolute(start, stmt.location);
+                let end = to_absolute(end, stmt.location);
+                return Range {
+                    location: start,
+                    end_location: end,
+                };
+            }
+        }
+        error!("Failed to find identifier for {:?}", stmt);
+    }
+    Range::from_located(stmt)
+}
+
+/// Return `true` if a `Stmt` appears to be part of a multi-statement line, with
+/// other statements preceding it.
+pub fn preceded_by_continuation(stmt: &Stmt, locator: &SourceCodeLocator) -> bool {
+    // Does the previous line end in a continuation? This will have a specific
+    // false-positive, which is that if the previous line ends in a comment, it
+    // will be treated as a continuation. So we should only use this information to
+    // make conservative choices.
+    // TODO(charlie): Come up with a more robust strategy.
+    if stmt.location.row() > 1 {
+        let range = Range {
+            location: Location::new(stmt.location.row() - 1, 0),
+            end_location: Location::new(stmt.location.row(), 0),
+        };
+        let line = locator.slice_source_code_range(&range);
+        if line.trim().ends_with('\\') {
+            return true;
+        }
+    }
+    false
+}
+
+/// Return `true` if a `Stmt` appears to be part of a multi-statement line, with
+/// other statements preceding it.
+pub fn preceded_by_multi_statement_line(stmt: &Stmt, locator: &SourceCodeLocator) -> bool {
+    match_leading_content(stmt, locator) || preceded_by_continuation(stmt, locator)
+}
+
+/// Return `true` if a `Stmt` appears to be part of a multi-statement line, with
+/// other statements following it.
+pub fn followed_by_multi_statement_line(stmt: &Stmt, locator: &SourceCodeLocator) -> bool {
+    match_trailing_content(stmt, locator)
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
     use rustc_hash::{FxHashMap, FxHashSet};
+    use rustpython_ast::Location;
     use rustpython_parser::parser;
 
-    use crate::ast::helpers::match_module_member;
+    use crate::ast::helpers::{identifier_range, match_module_member, match_trailing_content};
+    use crate::ast::types::Range;
+    use crate::source_code_locator::SourceCodeLocator;
 
     #[test]
     fn builtin() -> Result<()> {
@@ -459,6 +580,132 @@ mod tests {
             &FxHashMap::default(),
             &FxHashMap::from_iter([("t", "typing")]),
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn trailing_content() -> Result<()> {
+        let contents = "x = 1";
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert!(!match_trailing_content(stmt, &locator));
+
+        let contents = "x = 1; y = 2";
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert!(match_trailing_content(stmt, &locator));
+
+        let contents = "x = 1  ";
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert!(!match_trailing_content(stmt, &locator));
+
+        let contents = "x = 1  # Comment";
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert!(!match_trailing_content(stmt, &locator));
+
+        let contents = r#"
+x = 1
+y = 2
+"#
+        .trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert!(!match_trailing_content(stmt, &locator));
+
+        Ok(())
+    }
+
+    #[test]
+    fn extract_identifier_range() -> Result<()> {
+        let contents = "def f(): pass".trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert_eq!(
+            identifier_range(stmt, &locator),
+            Range {
+                location: Location::new(1, 4),
+                end_location: Location::new(1, 5),
+            }
+        );
+
+        let contents = r#"
+def \
+  f():
+  pass
+"#
+        .trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert_eq!(
+            identifier_range(stmt, &locator),
+            Range {
+                location: Location::new(2, 2),
+                end_location: Location::new(2, 3),
+            }
+        );
+
+        let contents = "class Class(): pass".trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert_eq!(
+            identifier_range(stmt, &locator),
+            Range {
+                location: Location::new(1, 6),
+                end_location: Location::new(1, 11),
+            }
+        );
+
+        let contents = "class Class: pass".trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert_eq!(
+            identifier_range(stmt, &locator),
+            Range {
+                location: Location::new(1, 6),
+                end_location: Location::new(1, 11),
+            }
+        );
+
+        let contents = r#"
+@decorator()
+class Class():
+  pass
+"#
+        .trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert_eq!(
+            identifier_range(stmt, &locator),
+            Range {
+                location: Location::new(2, 6),
+                end_location: Location::new(2, 11),
+            }
+        );
+
+        let contents = r#"x = y + 1"#.trim();
+        let program = parser::parse_program(contents, "<filename>")?;
+        let stmt = program.first().unwrap();
+        let locator = SourceCodeLocator::new(contents);
+        assert_eq!(
+            identifier_range(stmt, &locator),
+            Range {
+                location: Location::new(1, 0),
+                end_location: Location::new(1, 9),
+            }
+        );
+
         Ok(())
     }
 }

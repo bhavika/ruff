@@ -1,13 +1,11 @@
 use itertools::Itertools;
-use rustc_hash::FxHashSet;
-use rustpython_ast::{
-    Excepthandler, ExcepthandlerKind, Expr, ExprContext, ExprKind, Location, Stmt,
-};
+use rustc_hash::{FxHashMap, FxHashSet};
+use rustpython_ast::{Excepthandler, ExcepthandlerKind, Expr, ExprContext, ExprKind, Location};
 
 use crate::ast::helpers;
 use crate::ast::types::Range;
 use crate::autofix::Fix;
-use crate::check_ast::Checker;
+use crate::checkers::ast::Checker;
 use crate::checks::{Check, CheckCode, CheckKind};
 use crate::code_gen::SourceGenerator;
 
@@ -26,17 +24,17 @@ fn duplicate_handler_exceptions<'a>(
     checker: &mut Checker,
     expr: &'a Expr,
     elts: &'a [Expr],
-) -> FxHashSet<Vec<&'a str>> {
-    let mut seen: FxHashSet<Vec<&str>> = FxHashSet::default();
+) -> FxHashMap<Vec<&'a str>, &'a Expr> {
+    let mut seen: FxHashMap<Vec<&str>, &Expr> = FxHashMap::default();
     let mut duplicates: FxHashSet<Vec<&str>> = FxHashSet::default();
     let mut unique_elts: Vec<&Expr> = Vec::default();
     for type_ in elts {
         let call_path = helpers::collect_call_paths(type_);
         if !call_path.is_empty() {
-            if seen.contains(&call_path) {
+            if seen.contains_key(&call_path) {
                 duplicates.insert(call_path);
             } else {
-                seen.insert(call_path);
+                seen.entry(call_path).or_insert(type_);
                 unique_elts.push(type_);
             }
         }
@@ -56,9 +54,12 @@ fn duplicate_handler_exceptions<'a>(
                 Range::from_located(expr),
             );
             if checker.patch(check.kind.code()) {
-                // TODO(charlie): If we have a single element, remove the tuple.
                 let mut generator = SourceGenerator::new();
-                generator.unparse_expr(&type_pattern(unique_elts), 0);
+                if unique_elts.len() == 1 {
+                    generator.unparse_expr(unique_elts[0], 0);
+                } else {
+                    generator.unparse_expr(&type_pattern(unique_elts), 0);
+                }
                 if let Ok(content) = generator.generate() {
                     check.amend(Fix::replacement(
                         content,
@@ -74,9 +75,9 @@ fn duplicate_handler_exceptions<'a>(
     seen
 }
 
-pub fn duplicate_exceptions(checker: &mut Checker, stmt: &Stmt, handlers: &[Excepthandler]) {
+pub fn duplicate_exceptions(checker: &mut Checker, handlers: &[Excepthandler]) {
     let mut seen: FxHashSet<Vec<&str>> = FxHashSet::default();
-    let mut duplicates: FxHashSet<Vec<&str>> = FxHashSet::default();
+    let mut duplicates: FxHashMap<Vec<&str>, Vec<&Expr>> = FxHashMap::default();
     for handler in handlers {
         let ExcepthandlerKind::ExceptHandler { type_: Some(type_), .. } = &handler.node else {
             continue;
@@ -86,16 +87,16 @@ pub fn duplicate_exceptions(checker: &mut Checker, stmt: &Stmt, handlers: &[Exce
                 let call_path = helpers::collect_call_paths(type_);
                 if !call_path.is_empty() {
                     if seen.contains(&call_path) {
-                        duplicates.insert(call_path);
+                        duplicates.entry(call_path).or_default().push(type_);
                     } else {
                         seen.insert(call_path);
                     }
                 }
             }
             ExprKind::Tuple { elts, .. } => {
-                for name in duplicate_handler_exceptions(checker, type_, elts) {
+                for (name, expr) in duplicate_handler_exceptions(checker, type_, elts) {
                     if seen.contains(&name) {
-                        duplicates.insert(name);
+                        duplicates.entry(name).or_default().push(expr);
                     } else {
                         seen.insert(name);
                     }
@@ -106,11 +107,13 @@ pub fn duplicate_exceptions(checker: &mut Checker, stmt: &Stmt, handlers: &[Exce
     }
 
     if checker.settings.enabled.contains(&CheckCode::B025) {
-        for duplicate in duplicates.into_iter().sorted() {
-            checker.add_check(Check::new(
-                CheckKind::DuplicateTryBlockException(duplicate.join(".")),
-                Range::from_located(stmt),
-            ));
+        for (name, exprs) in duplicates {
+            for expr in exprs {
+                checker.add_check(Check::new(
+                    CheckKind::DuplicateTryBlockException(name.join(".")),
+                    Range::from_located(expr),
+                ));
+            }
         }
     }
 }

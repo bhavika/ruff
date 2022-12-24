@@ -5,7 +5,7 @@ use crate::ast::helpers::collect_arg_names;
 use crate::ast::types::{Node, Range};
 use crate::ast::visitor;
 use crate::ast::visitor::Visitor;
-use crate::check_ast::Checker;
+use crate::checkers::ast::Checker;
 use crate::checks::{Check, CheckKind};
 
 #[derive(Default)]
@@ -219,8 +219,8 @@ where
         // loop, flag it.
         for (name, expr, range) in suspicious_variables {
             if reassigned_in_loop.contains(name) {
-                if !checker.seen_b023.contains(&expr) {
-                    checker.seen_b023.push(expr);
+                if !checker.flake8_bugbear_seen.contains(&expr) {
+                    checker.flake8_bugbear_seen.push(expr);
                     checker.add_check(Check::new(
                         CheckKind::FunctionUsesLoopVariable(name.to_string()),
                         range,

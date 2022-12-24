@@ -1,4 +1,4 @@
-mod checks;
+pub mod checks;
 pub mod fixes;
 pub mod plugins;
 pub mod settings;
@@ -36,6 +36,8 @@ mod tests {
     #[test_case(CheckCode::UP013, Path::new("UP013.py"); "UP013")]
     #[test_case(CheckCode::UP014, Path::new("UP014.py"); "UP014")]
     #[test_case(CheckCode::UP015, Path::new("UP015.py"); "UP015")]
+    #[test_case(CheckCode::UP016, Path::new("UP016.py"); "UP016")]
+    #[test_case(CheckCode::UP018, Path::new("UP018.py"); "UP018")]
     fn checks(check_code: CheckCode, path: &Path) -> Result<()> {
         let snapshot = format!("{}_{}", check_code.as_ref(), path.to_string_lossy());
         let mut checks = test_path(
@@ -43,7 +45,6 @@ mod tests {
                 .join(path)
                 .as_path(),
             &settings::Settings::for_rule(check_code),
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(snapshot, checks);
@@ -58,7 +59,6 @@ mod tests {
                 target_version: PythonVersion::Py37,
                 ..settings::Settings::for_rule(CheckCode::UP006)
             },
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -73,7 +73,6 @@ mod tests {
                 target_version: PythonVersion::Py310,
                 ..settings::Settings::for_rule(CheckCode::UP006)
             },
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -88,7 +87,6 @@ mod tests {
                 target_version: PythonVersion::Py37,
                 ..settings::Settings::for_rule(CheckCode::UP007)
             },
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -103,7 +101,20 @@ mod tests {
                 target_version: PythonVersion::Py310,
                 ..settings::Settings::for_rule(CheckCode::UP007)
             },
-            true,
+        )?;
+        checks.sort_by_key(|check| check.location);
+        insta::assert_yaml_snapshot!(checks);
+        Ok(())
+    }
+
+    #[test]
+    fn datetime_utc_alias_py311() -> Result<()> {
+        let mut checks = test_path(
+            Path::new("./resources/test/fixtures/pyupgrade/UP017.py"),
+            &settings::Settings {
+                target_version: PythonVersion::Py311,
+                ..settings::Settings::for_rule(CheckCode::UP017)
+            },
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);

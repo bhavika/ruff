@@ -10,7 +10,7 @@ use crate::autofix::Fix;
 use crate::checks::Check;
 use crate::source_code_locator::SourceCodeLocator;
 
-#[derive(Hash)]
+#[derive(Debug, Copy, Clone, Hash)]
 pub enum Mode {
     Generate,
     Apply,
@@ -23,15 +23,6 @@ impl From<bool> for Mode {
             Mode::Apply
         } else {
             Mode::None
-        }
-    }
-}
-
-impl From<&Mode> for bool {
-    fn from(value: &Mode) -> Self {
-        match value {
-            Mode::Generate | Mode::Apply => true,
-            Mode::None => false,
         }
     }
 }

@@ -5,11 +5,12 @@ use rustc_hash::FxHashMap;
 use rustpython_ast::{Arguments, Location, StmtKind};
 use rustpython_parser::ast::{Cmpop, Constant, Expr, ExprKind, Stmt, Unaryop};
 
+use crate::ast::helpers;
 use crate::ast::helpers::{match_leading_content, match_trailing_content};
 use crate::ast::types::Range;
 use crate::ast::whitespace::leading_space;
 use crate::autofix::Fix;
-use crate::check_ast::Checker;
+use crate::checkers::ast::Checker;
 use crate::checks::{Check, CheckKind, RejectedCmpop};
 use crate::code_gen::SourceGenerator;
 
@@ -46,9 +47,10 @@ pub fn literal_comparisons(
     let mut checks: Vec<Check> = vec![];
 
     let op = ops.first().unwrap();
-    let comparator = left;
 
     // Check `left`.
+    let mut comparator = left;
+    let next = &comparators[0];
     if check_none_comparisons
         && matches!(
             comparator.node,
@@ -59,24 +61,21 @@ pub fn literal_comparisons(
         )
     {
         if matches!(op, Cmpop::Eq) {
-            let mut check = Check::new(
+            let check = Check::new(
                 CheckKind::NoneComparison(RejectedCmpop::Eq),
                 Range::from_located(comparator),
             );
-            if checker.patch(check.kind.code()) {
-                // Dummy replacement
-                check.amend(Fix::dummy(expr.location));
+            if checker.patch(check.kind.code()) && !helpers::is_constant_non_singleton(next) {
                 bad_ops.insert(0, Cmpop::Is);
             }
             checks.push(check);
         }
         if matches!(op, Cmpop::NotEq) {
-            let mut check = Check::new(
+            let check = Check::new(
                 CheckKind::NoneComparison(RejectedCmpop::NotEq),
                 Range::from_located(comparator),
             );
-            if checker.patch(check.kind.code()) {
-                check.amend(Fix::dummy(expr.location));
+            if checker.patch(check.kind.code()) && !helpers::is_constant_non_singleton(next) {
                 bad_ops.insert(0, Cmpop::IsNot);
             }
             checks.push(check);
@@ -90,23 +89,21 @@ pub fn literal_comparisons(
         } = comparator.node
         {
             if matches!(op, Cmpop::Eq) {
-                let mut check = Check::new(
+                let check = Check::new(
                     CheckKind::TrueFalseComparison(value, RejectedCmpop::Eq),
                     Range::from_located(comparator),
                 );
-                if checker.patch(check.kind.code()) {
-                    check.amend(Fix::dummy(expr.location));
+                if checker.patch(check.kind.code()) && !helpers::is_constant_non_singleton(next) {
                     bad_ops.insert(0, Cmpop::Is);
                 }
                 checks.push(check);
             }
             if matches!(op, Cmpop::NotEq) {
-                let mut check = Check::new(
+                let check = Check::new(
                     CheckKind::TrueFalseComparison(value, RejectedCmpop::NotEq),
                     Range::from_located(comparator),
                 );
-                if checker.patch(check.kind.code()) {
-                    check.amend(Fix::dummy(expr.location));
+                if checker.patch(check.kind.code()) && !helpers::is_constant_non_singleton(next) {
                     bad_ops.insert(0, Cmpop::IsNot);
                 }
                 checks.push(check);
@@ -115,10 +112,10 @@ pub fn literal_comparisons(
     }
 
     // Check each comparator in order.
-    for (idx, (op, comparator)) in izip!(ops, comparators).enumerate() {
+    for (idx, (op, next)) in izip!(ops, comparators).enumerate() {
         if check_none_comparisons
             && matches!(
-                comparator.node,
+                next.node,
                 ExprKind::Constant {
                     value: Constant::None,
                     kind: None
@@ -126,23 +123,25 @@ pub fn literal_comparisons(
             )
         {
             if matches!(op, Cmpop::Eq) {
-                let mut check = Check::new(
+                let check = Check::new(
                     CheckKind::NoneComparison(RejectedCmpop::Eq),
-                    Range::from_located(comparator),
+                    Range::from_located(next),
                 );
-                if checker.patch(check.kind.code()) {
-                    check.amend(Fix::dummy(expr.location));
+                if checker.patch(check.kind.code())
+                    && !helpers::is_constant_non_singleton(comparator)
+                {
                     bad_ops.insert(idx, Cmpop::Is);
                 }
                 checks.push(check);
             }
             if matches!(op, Cmpop::NotEq) {
-                let mut check = Check::new(
+                let check = Check::new(
                     CheckKind::NoneComparison(RejectedCmpop::NotEq),
-                    Range::from_located(comparator),
+                    Range::from_located(next),
                 );
-                if checker.patch(check.kind.code()) {
-                    check.amend(Fix::dummy(expr.location));
+                if checker.patch(check.kind.code())
+                    && !helpers::is_constant_non_singleton(comparator)
+                {
                     bad_ops.insert(idx, Cmpop::IsNot);
                 }
                 checks.push(check);
@@ -153,34 +152,40 @@ pub fn literal_comparisons(
             if let ExprKind::Constant {
                 value: Constant::Bool(value),
                 kind: None,
-            } = comparator.node
+            } = next.node
             {
                 if matches!(op, Cmpop::Eq) {
-                    let mut check = Check::new(
+                    let check = Check::new(
                         CheckKind::TrueFalseComparison(value, RejectedCmpop::Eq),
-                        Range::from_located(comparator),
+                        Range::from_located(next),
                     );
-                    if checker.patch(check.kind.code()) {
-                        check.amend(Fix::dummy(expr.location));
+                    if checker.patch(check.kind.code())
+                        && !helpers::is_constant_non_singleton(comparator)
+                    {
                         bad_ops.insert(idx, Cmpop::Is);
                     }
                     checks.push(check);
                 }
                 if matches!(op, Cmpop::NotEq) {
-                    let mut check = Check::new(
+                    let check = Check::new(
                         CheckKind::TrueFalseComparison(value, RejectedCmpop::NotEq),
-                        Range::from_located(comparator),
+                        Range::from_located(next),
                     );
-                    if checker.patch(check.kind.code()) {
-                        check.amend(Fix::dummy(expr.location));
+                    if checker.patch(check.kind.code())
+                        && !helpers::is_constant_non_singleton(comparator)
+                    {
                         bad_ops.insert(idx, Cmpop::IsNot);
                     }
                     checks.push(check);
                 }
             }
         }
+
+        comparator = next;
     }
 
+    // TODO(charlie): Respect `noqa` directives. If one of the operators has a
+    // `noqa`, but another doesn't, both will be removed here.
     if !bad_ops.is_empty() {
         // Replace the entire comparison expression.
         let ops = ops
@@ -190,9 +195,9 @@ pub fn literal_comparisons(
             .cloned()
             .collect::<Vec<_>>();
         if let Some(content) = compare(left, &ops, comparators) {
-            if let Some(check) = checks.last_mut() {
-                check.fix = Some(Fix::replacement(
-                    content,
+            for check in &mut checks {
+                check.amend(Fix::replacement(
+                    content.to_string(),
                     expr.location,
                     expr.end_location.unwrap(),
                 ));
@@ -298,11 +303,11 @@ pub fn do_not_assign_lambda(checker: &mut Checker, target: &Expr, value: &Expr, 
                 {
                     match function(id, args, body) {
                         Ok(content) => {
-                            let indentation =
-                                &leading_space(&checker.locator.slice_source_code_range(&Range {
-                                    location: Location::new(stmt.location.row(), 0),
-                                    end_location: Location::new(stmt.location.row() + 1, 0),
-                                }));
+                            let first_line = checker.locator.slice_source_code_range(&Range {
+                                location: Location::new(stmt.location.row(), 0),
+                                end_location: Location::new(stmt.location.row() + 1, 0),
+                            });
+                            let indentation = &leading_space(&first_line);
                             let mut indented = String::new();
                             for (idx, line) in content.lines().enumerate() {
                                 if idx == 0 {

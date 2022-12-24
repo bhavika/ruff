@@ -7,18 +7,6 @@ def x():
 
 
 def x():
-    b, a = 1, 2
-    print(b)
-    return a  # error
-
-
-def x():
-    a = 1
-    print()
-    return a  # error
-
-
-def x():
     a = 1
     print(a)
     a = 2
@@ -53,7 +41,6 @@ def x():
 
 # https://github.com/afonasev/flake8-return/issues/47#issue-641117366
 def user_agent_username(username=None):
-
     if not username:
         return ""
 
@@ -128,6 +115,26 @@ def x():
         val = val + str(i)
         i = i - x
     return val
+
+
+def x():
+    a = 1
+    print(f"a={a}")
+    return a
+
+
+# Considered OK, since functions can have side effects.
+def x():
+    b, a = 1, 2
+    print(b)
+    return a
+
+
+# Considered OK, since functions can have side effects.
+def x():
+    a = 1
+    print()
+    return a
 
 
 # Test cases for using value for assignment then returning it
@@ -230,3 +237,15 @@ def close(self):
             any_failed = True
             report(traceback.format_exc())
     return any_failed
+
+def global_assignment():
+    global X
+    X = 1
+    return X
+
+def nonlocal_assignment():
+    X = 1
+    def inner():
+        nonlocal X
+        X = 1
+        return X

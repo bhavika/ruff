@@ -7,22 +7,22 @@ use std::path::Path;
 use anyhow::Result;
 #[cfg(not(target_family = "wasm"))]
 use log::debug;
-use nohash_hasher::IntMap;
 use rustpython_parser::lexer::LexResult;
 
 use crate::ast::types::Range;
 use crate::autofix::fixer;
 use crate::autofix::fixer::fix_file;
-use crate::check_ast::check_ast;
-use crate::check_imports::check_imports;
-use crate::check_lines::check_lines;
-use crate::check_tokens::check_tokens;
+use crate::checkers::ast::check_ast;
+use crate::checkers::imports::check_imports;
+use crate::checkers::lines::check_lines;
+use crate::checkers::noqa::check_noqa;
+use crate::checkers::tokens::check_tokens;
 use crate::checks::{Check, CheckCode, CheckKind, LintSource};
 use crate::code_gen::SourceGenerator;
 use crate::directives::Directives;
 use crate::message::{Message, Source};
 use crate::noqa::add_noqa;
-use crate::settings::Settings;
+use crate::settings::{flags, Settings};
 use crate::source_code_locator::SourceCodeLocator;
 use crate::{cache, directives, fs, rustpython_helpers};
 
@@ -50,23 +50,24 @@ impl AddAssign for Diagnostics {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn check_path(
     path: &Path,
+    package: Option<&Path>,
     contents: &str,
     tokens: Vec<LexResult>,
     locator: &SourceCodeLocator,
     directives: &Directives,
     settings: &Settings,
-    autofix: bool,
-    ignore_noqa: bool,
+    autofix: flags::Autofix,
+    noqa: flags::Noqa,
 ) -> Result<Vec<Check>> {
     // Aggregate all checks.
     let mut checks: Vec<Check> = vec![];
 
     // Run the token-based checks.
-    let use_tokens = settings
+    if settings
         .enabled
         .iter()
-        .any(|check_code| matches!(check_code.lint_source(), LintSource::Tokens));
-    if use_tokens {
+        .any(|check_code| matches!(check_code.lint_source(), LintSource::Tokens))
+    {
         checks.extend(check_tokens(locator, &tokens, settings, autofix));
     }
 
@@ -83,7 +84,15 @@ pub(crate) fn check_path(
         match rustpython_helpers::parse_program_tokens(tokens, "<filename>") {
             Ok(python_ast) => {
                 if use_ast {
-                    checks.extend(check_ast(&python_ast, locator, settings, autofix, path));
+                    checks.extend(check_ast(
+                        &python_ast,
+                        locator,
+                        &directives.noqa_line_for,
+                        settings,
+                        autofix,
+                        noqa,
+                        path,
+                    ));
                 }
                 if use_imports {
                     checks.extend(check_imports(
@@ -93,6 +102,7 @@ pub(crate) fn check_path(
                         settings,
                         autofix,
                         path,
+                        package,
                     ));
                 }
             }
@@ -111,14 +121,35 @@ pub(crate) fn check_path(
     }
 
     // Run the lines-based checks.
-    check_lines(
-        &mut checks,
-        contents,
-        &directives.noqa_line_for,
-        settings,
-        autofix,
-        ignore_noqa,
-    );
+    if settings
+        .enabled
+        .iter()
+        .any(|check_code| matches!(check_code.lint_source(), LintSource::Lines))
+    {
+        checks.extend(check_lines(
+            contents,
+            &directives.commented_lines,
+            settings,
+            autofix,
+        ));
+    }
+
+    // Enforce `noqa` directives.
+    if matches!(noqa, flags::Noqa::Enabled)
+        || settings
+            .enabled
+            .iter()
+            .any(|check_code| matches!(check_code.lint_source(), LintSource::NoQA))
+    {
+        check_noqa(
+            &mut checks,
+            contents,
+            &directives.commented_lines,
+            &directives.noqa_line_for,
+            settings,
+            autofix,
+        );
+    }
 
     // Create path ignores.
     if !checks.is_empty() && !settings.per_file_ignores.is_empty() {
@@ -139,14 +170,15 @@ const MAX_ITERATIONS: usize = 100;
 /// Lint the source code at the given `Path`.
 pub fn lint_path(
     path: &Path,
+    package: Option<&Path>,
     settings: &Settings,
-    mode: &cache::Mode,
-    autofix: &fixer::Mode,
+    cache: flags::Cache,
+    autofix: fixer::Mode,
 ) -> Result<Diagnostics> {
     let metadata = path.metadata()?;
 
     // Check the cache.
-    if let Some(messages) = cache::get(path, &metadata, settings, autofix, mode) {
+    if let Some(messages) = cache::get(path, &metadata, settings, autofix, cache) {
         debug!("Cache hit for: {}", path.to_string_lossy());
         return Ok(Diagnostics::new(messages));
     }
@@ -155,10 +187,10 @@ pub fn lint_path(
     let contents = fs::read_file(path)?;
 
     // Lint the file.
-    let (contents, fixed, messages) = lint(contents, path, settings, autofix)?;
+    let (contents, fixed, messages) = lint(contents, path, package, settings, autofix)?;
 
     // Re-populate the cache.
-    cache::set(path, &metadata, settings, autofix, &messages, mode);
+    cache::set(path, &metadata, settings, autofix, &messages, cache);
 
     // If we applied any fixes, write the contents back to disk.
     if fixed > 0 {
@@ -189,16 +221,14 @@ pub fn add_noqa_to_path(path: &Path, settings: &Settings) -> Result<usize> {
     // Generate checks, ignoring any existing `noqa` directives.
     let checks = check_path(
         path,
+        None,
         &contents,
         tokens,
         &locator,
-        &Directives {
-            noqa_line_for: IntMap::default(),
-            isort: directives.isort,
-        },
+        &directives,
         settings,
-        false,
-        true,
+        flags::Autofix::Disabled,
+        flags::Noqa::Disabled,
     )?;
 
     add_noqa(
@@ -211,7 +241,7 @@ pub fn add_noqa_to_path(path: &Path, settings: &Settings) -> Result<usize> {
 }
 
 /// Apply autoformatting to the source code at the given `Path`.
-pub fn autoformat_path(path: &Path) -> Result<()> {
+pub fn autoformat_path(path: &Path, _settings: &Settings) -> Result<()> {
     // Read the file from disk.
     let contents = fs::read_file(path)?;
 
@@ -230,16 +260,23 @@ pub fn autoformat_path(path: &Path) -> Result<()> {
 /// Generate a list of `Check` violations from source code content derived from
 /// stdin.
 pub fn lint_stdin(
-    path: &Path,
+    path: Option<&Path>,
+    package: Option<&Path>,
     stdin: &str,
     settings: &Settings,
-    autofix: &fixer::Mode,
+    autofix: fixer::Mode,
 ) -> Result<Diagnostics> {
     // Read the file from disk.
     let contents = stdin.to_string();
 
     // Lint the file.
-    let (contents, fixed, messages) = lint(contents, path, settings, autofix)?;
+    let (contents, fixed, messages) = lint(
+        contents,
+        path.unwrap_or_else(|| Path::new("-")),
+        package,
+        settings,
+        autofix,
+    )?;
 
     // Write the fixed contents to stdout.
     if matches!(autofix, fixer::Mode::Apply) {
@@ -252,8 +289,9 @@ pub fn lint_stdin(
 fn lint(
     mut contents: String,
     path: &Path,
+    package: Option<&Path>,
     settings: &Settings,
-    autofix: &fixer::Mode,
+    autofix: fixer::Mode,
 ) -> Result<(String, usize, Vec<Message>)> {
     // Track the number of fixed errors across iterations.
     let mut fixed = 0;
@@ -279,13 +317,14 @@ fn lint(
         // Generate checks.
         let checks = check_path(
             path,
+            package,
             &contents,
             tokens,
             &locator,
             &directives,
             settings,
             autofix.into(),
-            false,
+            flags::Noqa::Enabled,
         )?;
 
         // Apply autofix.
@@ -324,7 +363,7 @@ fn lint(
 }
 
 #[cfg(test)]
-pub fn test_path(path: &Path, settings: &Settings, autofix: bool) -> Result<Vec<Check>> {
+pub fn test_path(path: &Path, settings: &Settings) -> Result<Vec<Check>> {
     let contents = fs::read_file(path)?;
     let tokens: Vec<LexResult> = rustpython_helpers::tokenize(&contents);
     let locator = SourceCodeLocator::new(&contents);
@@ -335,12 +374,13 @@ pub fn test_path(path: &Path, settings: &Settings, autofix: bool) -> Result<Vec<
     );
     check_path(
         path,
+        None,
         &contents,
         tokens,
         &locator,
         &directives,
         settings,
-        autofix,
-        false,
+        flags::Autofix::Enabled,
+        flags::Noqa::Enabled,
     )
 }

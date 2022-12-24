@@ -25,7 +25,6 @@ mod tests {
                     CheckCode::RUF003,
                 ])
             },
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -39,9 +38,9 @@ mod tests {
             &settings::Settings::for_rules(vec![
                 CheckCode::RUF100,
                 CheckCode::E501,
+                CheckCode::F401,
                 CheckCode::F841,
             ]),
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -53,7 +52,6 @@ mod tests {
         let mut checks = test_path(
             Path::new("./resources/test/fixtures/ruff/flake8_noqa.py"),
             &settings::Settings::for_rules(vec![CheckCode::F401, CheckCode::F841]),
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -65,7 +63,6 @@ mod tests {
         let mut checks = test_path(
             Path::new("./resources/test/fixtures/ruff/ruff_noqa.py"),
             &settings::Settings::for_rules(vec![CheckCode::F401, CheckCode::F841]),
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);
@@ -77,7 +74,6 @@ mod tests {
         let mut checks = test_path(
             Path::new("./resources/test/fixtures/ruff/redirects.py"),
             &settings::Settings::for_rules(vec![CheckCode::UP007]),
-            true,
         )?;
         checks.sort_by_key(|check| check.location);
         insta::assert_yaml_snapshot!(checks);

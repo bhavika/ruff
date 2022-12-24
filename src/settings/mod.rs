@@ -8,26 +8,30 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use globset::{Glob, GlobMatcher, GlobSet};
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use path_absolutize::path_dedot;
 use regex::Regex;
 use rustc_hash::FxHashSet;
 
+use crate::cache::cache_dir;
 use crate::checks::CheckCode;
-use crate::checks_gen::{CheckCodePrefix, SuffixLength};
+use crate::checks_gen::{CheckCodePrefix, SuffixLength, CATEGORIES};
 use crate::settings::configuration::Configuration;
 use crate::settings::types::{FilePattern, PerFileIgnore, PythonVersion, SerializationFormat};
 use crate::{
-    flake8_annotations, flake8_bugbear, flake8_import_conventions, flake8_quotes,
-    flake8_tidy_imports, fs, isort, mccabe, pep8_naming, pyupgrade,
+    flake8_annotations, flake8_bugbear, flake8_errmsg, flake8_import_conventions, flake8_quotes,
+    flake8_tidy_imports, flake8_unused_arguments, isort, mccabe, pep8_naming, pyupgrade,
 };
 
 pub mod configuration;
+pub mod flags;
 pub mod options;
 pub mod options_base;
 pub mod pyproject;
 pub mod types;
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Settings {
     pub allowed_confusables: FxHashSet<char>,
     pub dummy_variable_rgx: Regex,
@@ -35,66 +39,157 @@ pub struct Settings {
     pub exclude: GlobSet,
     pub extend_exclude: GlobSet,
     pub external: FxHashSet<String>,
+    pub fix: bool,
     pub fixable: FxHashSet<CheckCode>,
     pub format: SerializationFormat,
+    pub force_exclude: bool,
     pub ignore_init_module_imports: bool,
     pub line_length: usize,
     pub per_file_ignores: Vec<(GlobMatcher, GlobMatcher, FxHashSet<CheckCode>)>,
+    pub respect_gitignore: bool,
     pub show_source: bool,
     pub src: Vec<PathBuf>,
     pub target_version: PythonVersion,
+    pub cache_dir: PathBuf,
     // Plugins
     pub flake8_annotations: flake8_annotations::settings::Settings,
     pub flake8_bugbear: flake8_bugbear::settings::Settings,
+    pub flake8_errmsg: flake8_errmsg::settings::Settings,
     pub flake8_import_conventions: flake8_import_conventions::settings::Settings,
     pub flake8_quotes: flake8_quotes::settings::Settings,
     pub flake8_tidy_imports: flake8_tidy_imports::settings::Settings,
+    pub flake8_unused_arguments: flake8_unused_arguments::settings::Settings,
     pub isort: isort::settings::Settings,
     pub mccabe: mccabe::settings::Settings,
     pub pep8_naming: pep8_naming::settings::Settings,
     pub pyupgrade: pyupgrade::settings::Settings,
 }
 
+static DEFAULT_EXCLUDE: Lazy<Vec<FilePattern>> = Lazy::new(|| {
+    vec![
+        FilePattern::Builtin(".bzr"),
+        FilePattern::Builtin(".direnv"),
+        FilePattern::Builtin(".eggs"),
+        FilePattern::Builtin(".git"),
+        FilePattern::Builtin(".hg"),
+        FilePattern::Builtin(".mypy_cache"),
+        FilePattern::Builtin(".nox"),
+        FilePattern::Builtin(".pants.d"),
+        FilePattern::Builtin(".ruff_cache"),
+        FilePattern::Builtin(".svn"),
+        FilePattern::Builtin(".tox"),
+        FilePattern::Builtin(".venv"),
+        FilePattern::Builtin("__pypackages__"),
+        FilePattern::Builtin("_build"),
+        FilePattern::Builtin("buck-out"),
+        FilePattern::Builtin("build"),
+        FilePattern::Builtin("dist"),
+        FilePattern::Builtin("node_modules"),
+        FilePattern::Builtin("venv"),
+    ]
+});
+
+static DEFAULT_DUMMY_VARIABLE_RGX: Lazy<Regex> =
+    Lazy::new(|| Regex::new("^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$").unwrap());
+
 impl Settings {
-    pub fn from_configuration(
-        config: Configuration,
-        project_root: Option<&PathBuf>,
-    ) -> Result<Self> {
+    pub fn from_configuration(config: Configuration, project_root: &Path) -> Result<Self> {
         Ok(Self {
-            allowed_confusables: config.allowed_confusables,
-            dummy_variable_rgx: config.dummy_variable_rgx,
+            allowed_confusables: config
+                .allowed_confusables
+                .map(FxHashSet::from_iter)
+                .unwrap_or_default(),
+            dummy_variable_rgx: config
+                .dummy_variable_rgx
+                .unwrap_or_else(|| DEFAULT_DUMMY_VARIABLE_RGX.clone()),
             enabled: resolve_codes(
-                &config
-                    .select
-                    .into_iter()
-                    .chain(config.extend_select.into_iter())
-                    .collect::<Vec<_>>(),
-                &config
-                    .ignore
-                    .into_iter()
-                    .chain(config.extend_ignore.into_iter())
-                    .collect::<Vec<_>>(),
+                [CheckCodeSpec {
+                    select: &config
+                        .select
+                        .unwrap_or_else(|| vec![CheckCodePrefix::E, CheckCodePrefix::F]),
+                    ignore: &config.ignore.unwrap_or_default(),
+                }]
+                .into_iter()
+                .chain(
+                    config
+                        .extend_select
+                        .iter()
+                        .zip(config.extend_ignore.iter())
+                        .map(|(select, ignore)| CheckCodeSpec { select, ignore }),
+                ),
             ),
-            exclude: resolve_globset(config.exclude, project_root)?,
-            extend_exclude: resolve_globset(config.extend_exclude, project_root)?,
-            external: FxHashSet::from_iter(config.external),
-            fixable: resolve_codes(&config.fixable, &config.unfixable),
-            format: config.format,
-            flake8_annotations: config.flake8_annotations,
-            flake8_bugbear: config.flake8_bugbear,
-            flake8_import_conventions: config.flake8_import_conventions,
-            flake8_quotes: config.flake8_quotes,
-            flake8_tidy_imports: config.flake8_tidy_imports,
-            ignore_init_module_imports: config.ignore_init_module_imports,
-            isort: config.isort,
-            mccabe: config.mccabe,
-            line_length: config.line_length,
-            pep8_naming: config.pep8_naming,
-            pyupgrade: config.pyupgrade,
-            per_file_ignores: resolve_per_file_ignores(config.per_file_ignores, project_root)?,
-            src: config.src,
-            target_version: config.target_version,
-            show_source: config.show_source,
+            exclude: resolve_globset(config.exclude.unwrap_or_else(|| DEFAULT_EXCLUDE.clone()))?,
+            extend_exclude: resolve_globset(config.extend_exclude)?,
+            external: FxHashSet::from_iter(config.external.unwrap_or_default()),
+            fix: config.fix.unwrap_or(false),
+            fixable: resolve_codes(
+                [CheckCodeSpec {
+                    select: &config.fixable.unwrap_or_else(|| CATEGORIES.to_vec()),
+                    ignore: &config.unfixable.unwrap_or_default(),
+                }]
+                .into_iter(),
+            ),
+            format: config.format.unwrap_or(SerializationFormat::Text),
+            force_exclude: config.force_exclude.unwrap_or(false),
+            ignore_init_module_imports: config.ignore_init_module_imports.unwrap_or_default(),
+            line_length: config.line_length.unwrap_or(88),
+            per_file_ignores: resolve_per_file_ignores(
+                config.per_file_ignores.unwrap_or_default(),
+            )?,
+            respect_gitignore: config.respect_gitignore.unwrap_or(true),
+            src: config
+                .src
+                .unwrap_or_else(|| vec![project_root.to_path_buf()]),
+            target_version: config.target_version.unwrap_or(PythonVersion::Py310),
+            show_source: config.show_source.unwrap_or_default(),
+            cache_dir: config.cache_dir.unwrap_or_else(|| cache_dir(project_root)),
+            // Plugins
+            flake8_annotations: config
+                .flake8_annotations
+                .map(flake8_annotations::settings::Settings::from_options)
+                .unwrap_or_default(),
+            flake8_bugbear: config
+                .flake8_bugbear
+                .map(flake8_bugbear::settings::Settings::from_options)
+                .unwrap_or_default(),
+            flake8_errmsg: config
+                .flake8_errmsg
+                .map(flake8_errmsg::settings::Settings::from_options)
+                .unwrap_or_default(),
+            flake8_import_conventions: config
+                .flake8_import_conventions
+                .map(flake8_import_conventions::settings::Settings::from_options)
+                .unwrap_or_default(),
+            flake8_quotes: config
+                .flake8_quotes
+                .map(flake8_quotes::settings::Settings::from_options)
+                .unwrap_or_default(),
+            flake8_tidy_imports: config
+                .flake8_tidy_imports
+                .map(flake8_tidy_imports::settings::Settings::from_options)
+                .unwrap_or_default(),
+            flake8_unused_arguments: config
+                .flake8_unused_arguments
+                .map(flake8_unused_arguments::settings::Settings::from_options)
+                .unwrap_or_default(),
+            isort: config
+                .isort
+                .map(isort::settings::Settings::from_options)
+                .unwrap_or_default(),
+            mccabe: config
+                .mccabe
+                .as_ref()
+                .map(mccabe::settings::Settings::from_options)
+                .unwrap_or_default(),
+            pep8_naming: config
+                .pep8_naming
+                .map(pep8_naming::settings::Settings::from_options)
+                .unwrap_or_default(),
+            pyupgrade: config
+                .pyupgrade
+                .as_ref()
+                .map(pyupgrade::settings::Settings::from_options)
+                .unwrap_or_default(),
         })
     }
 
@@ -106,19 +201,25 @@ impl Settings {
             exclude: GlobSet::empty(),
             extend_exclude: GlobSet::empty(),
             external: FxHashSet::default(),
+            fix: false,
             fixable: FxHashSet::from_iter([check_code]),
             format: SerializationFormat::Text,
+            force_exclude: false,
             ignore_init_module_imports: false,
             line_length: 88,
             per_file_ignores: vec![],
+            respect_gitignore: true,
             show_source: false,
             src: vec![path_dedot::CWD.clone()],
             target_version: PythonVersion::Py310,
+            cache_dir: cache_dir(path_dedot::CWD.as_path()),
             flake8_annotations: flake8_annotations::settings::Settings::default(),
             flake8_bugbear: flake8_bugbear::settings::Settings::default(),
+            flake8_errmsg: flake8_errmsg::settings::Settings::default(),
             flake8_import_conventions: flake8_import_conventions::settings::Settings::default(),
             flake8_quotes: flake8_quotes::settings::Settings::default(),
             flake8_tidy_imports: flake8_tidy_imports::settings::Settings::default(),
+            flake8_unused_arguments: flake8_unused_arguments::settings::Settings::default(),
             isort: isort::settings::Settings::default(),
             mccabe: mccabe::settings::Settings::default(),
             pep8_naming: pep8_naming::settings::Settings::default(),
@@ -134,19 +235,25 @@ impl Settings {
             exclude: GlobSet::empty(),
             extend_exclude: GlobSet::empty(),
             external: FxHashSet::default(),
+            fix: false,
             fixable: FxHashSet::from_iter(check_codes),
             format: SerializationFormat::Text,
+            force_exclude: false,
             ignore_init_module_imports: false,
             line_length: 88,
             per_file_ignores: vec![],
+            respect_gitignore: true,
             show_source: false,
             src: vec![path_dedot::CWD.clone()],
             target_version: PythonVersion::Py310,
+            cache_dir: cache_dir(path_dedot::CWD.as_path()),
             flake8_annotations: flake8_annotations::settings::Settings::default(),
             flake8_bugbear: flake8_bugbear::settings::Settings::default(),
+            flake8_errmsg: flake8_errmsg::settings::Settings::default(),
             flake8_import_conventions: flake8_import_conventions::settings::Settings::default(),
             flake8_quotes: flake8_quotes::settings::Settings::default(),
             flake8_tidy_imports: flake8_tidy_imports::settings::Settings::default(),
+            flake8_unused_arguments: flake8_unused_arguments::settings::Settings::default(),
             isort: isort::settings::Settings::default(),
             mccabe: mccabe::settings::Settings::default(),
             pep8_naming: pep8_naming::settings::Settings::default(),
@@ -181,13 +288,16 @@ impl Hash for Settings {
             }
         }
         self.show_source.hash(state);
+        self.src.hash(state);
         self.target_version.hash(state);
         // Add plugin properties in alphabetical order.
         self.flake8_annotations.hash(state);
         self.flake8_bugbear.hash(state);
+        self.flake8_errmsg.hash(state);
         self.flake8_import_conventions.hash(state);
         self.flake8_quotes.hash(state);
         self.flake8_tidy_imports.hash(state);
+        self.flake8_unused_arguments.hash(state);
         self.isort.hash(state);
         self.mccabe.hash(state);
         self.pep8_naming.hash(state);
@@ -196,13 +306,10 @@ impl Hash for Settings {
 }
 
 /// Given a list of patterns, create a `GlobSet`.
-pub fn resolve_globset(
-    patterns: Vec<FilePattern>,
-    project_root: Option<&PathBuf>,
-) -> Result<GlobSet> {
+pub fn resolve_globset(patterns: Vec<FilePattern>) -> Result<GlobSet> {
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in patterns {
-        pattern.add_to(&mut builder, project_root)?;
+        pattern.add_to(&mut builder)?;
     }
     builder.build().map_err(std::convert::Into::into)
 }
@@ -210,47 +317,50 @@ pub fn resolve_globset(
 /// Given a list of patterns, create a `GlobSet`.
 pub fn resolve_per_file_ignores(
     per_file_ignores: Vec<PerFileIgnore>,
-    project_root: Option<&PathBuf>,
 ) -> Result<Vec<(GlobMatcher, GlobMatcher, FxHashSet<CheckCode>)>> {
     per_file_ignores
         .into_iter()
         .map(|per_file_ignore| {
             // Construct absolute path matcher.
-            let path = Path::new(&per_file_ignore.pattern);
-            let absolute_path = match project_root {
-                Some(project_root) => fs::normalize_path_to(path, project_root),
-                None => fs::normalize_path(path),
-            };
-            let absolute = Glob::new(&absolute_path.to_string_lossy())?.compile_matcher();
+            let absolute =
+                Glob::new(&per_file_ignore.absolute.to_string_lossy())?.compile_matcher();
 
             // Construct basename matcher.
-            let basename = Glob::new(&per_file_ignore.pattern)?.compile_matcher();
+            let basename = Glob::new(&per_file_ignore.basename)?.compile_matcher();
 
             Ok((absolute, basename, per_file_ignore.codes))
         })
         .collect()
 }
 
+#[derive(Debug)]
+struct CheckCodeSpec<'a> {
+    select: &'a [CheckCodePrefix],
+    ignore: &'a [CheckCodePrefix],
+}
+
 /// Given a set of selected and ignored prefixes, resolve the set of enabled
 /// error codes.
-fn resolve_codes(select: &[CheckCodePrefix], ignore: &[CheckCodePrefix]) -> FxHashSet<CheckCode> {
+fn resolve_codes<'a>(specs: impl Iterator<Item = CheckCodeSpec<'a>>) -> FxHashSet<CheckCode> {
     let mut codes: FxHashSet<CheckCode> = FxHashSet::default();
-    for specificity in [
-        SuffixLength::Zero,
-        SuffixLength::One,
-        SuffixLength::Two,
-        SuffixLength::Three,
-        SuffixLength::Four,
-    ] {
-        for prefix in select {
-            if prefix.specificity() == specificity {
-                codes.extend(prefix.codes());
+    for spec in specs {
+        for specificity in [
+            SuffixLength::Zero,
+            SuffixLength::One,
+            SuffixLength::Two,
+            SuffixLength::Three,
+            SuffixLength::Four,
+        ] {
+            for prefix in spec.select {
+                if prefix.specificity() == specificity {
+                    codes.extend(prefix.codes());
+                }
             }
-        }
-        for prefix in ignore {
-            if prefix.specificity() == specificity {
-                for code in prefix.codes() {
-                    codes.remove(&code);
+            for prefix in spec.ignore {
+                if prefix.specificity() == specificity {
+                    for code in prefix.codes() {
+                        codes.remove(&code);
+                    }
                 }
             }
         }
@@ -264,24 +374,80 @@ mod tests {
 
     use crate::checks::CheckCode;
     use crate::checks_gen::CheckCodePrefix;
-    use crate::settings::resolve_codes;
+    use crate::settings::{resolve_codes, CheckCodeSpec};
 
     #[test]
-    fn resolver() {
-        let actual = resolve_codes(&[CheckCodePrefix::W], &[]);
+    fn check_codes() {
+        let actual = resolve_codes(
+            [CheckCodeSpec {
+                select: &[CheckCodePrefix::W],
+                ignore: &[],
+            }]
+            .into_iter(),
+        );
         let expected = FxHashSet::from_iter([CheckCode::W292, CheckCode::W605]);
         assert_eq!(actual, expected);
 
-        let actual = resolve_codes(&[CheckCodePrefix::W6], &[]);
+        let actual = resolve_codes(
+            [CheckCodeSpec {
+                select: &[CheckCodePrefix::W6],
+                ignore: &[],
+            }]
+            .into_iter(),
+        );
         let expected = FxHashSet::from_iter([CheckCode::W605]);
         assert_eq!(actual, expected);
 
-        let actual = resolve_codes(&[CheckCodePrefix::W], &[CheckCodePrefix::W292]);
+        let actual = resolve_codes(
+            [CheckCodeSpec {
+                select: &[CheckCodePrefix::W],
+                ignore: &[CheckCodePrefix::W292],
+            }]
+            .into_iter(),
+        );
         let expected = FxHashSet::from_iter([CheckCode::W605]);
         assert_eq!(actual, expected);
 
-        let actual = resolve_codes(&[CheckCodePrefix::W605], &[CheckCodePrefix::W605]);
+        let actual = resolve_codes(
+            [CheckCodeSpec {
+                select: &[CheckCodePrefix::W605],
+                ignore: &[CheckCodePrefix::W605],
+            }]
+            .into_iter(),
+        );
         let expected = FxHashSet::from_iter([]);
+        assert_eq!(actual, expected);
+
+        let actual = resolve_codes(
+            [
+                CheckCodeSpec {
+                    select: &[CheckCodePrefix::W],
+                    ignore: &[CheckCodePrefix::W292],
+                },
+                CheckCodeSpec {
+                    select: &[CheckCodePrefix::W292],
+                    ignore: &[],
+                },
+            ]
+            .into_iter(),
+        );
+        let expected = FxHashSet::from_iter([CheckCode::W292, CheckCode::W605]);
+        assert_eq!(actual, expected);
+
+        let actual = resolve_codes(
+            [
+                CheckCodeSpec {
+                    select: &[CheckCodePrefix::W],
+                    ignore: &[CheckCodePrefix::W292],
+                },
+                CheckCodeSpec {
+                    select: &[CheckCodePrefix::W292],
+                    ignore: &[CheckCodePrefix::W],
+                },
+            ]
+            .into_iter(),
+        );
+        let expected = FxHashSet::from_iter([CheckCode::W292]);
         assert_eq!(actual, expected);
     }
 }

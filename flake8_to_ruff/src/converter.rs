@@ -7,16 +7,24 @@ use ruff::flake8_tidy_imports::settings::Strictness;
 use ruff::settings::options::Options;
 use ruff::settings::pyproject::Pyproject;
 use ruff::{
-    flake8_annotations, flake8_bugbear, flake8_quotes, flake8_tidy_imports, mccabe, pep8_naming,
+    flake8_annotations, flake8_bugbear, flake8_errmsg, flake8_quotes, flake8_tidy_imports, mccabe,
+    pep8_naming,
 };
 
+use crate::black::Black;
 use crate::plugin::Plugin;
 use crate::{parser, plugin};
 
 pub fn convert(
-    flake8: &HashMap<String, Option<String>>,
+    config: &HashMap<String, HashMap<String, Option<String>>>,
+    black: Option<&Black>,
     plugins: Option<Vec<Plugin>>,
 ) -> Result<Pyproject> {
+    // Extract the Flake8 section.
+    let flake8 = config
+        .get("flake8")
+        .expect("Unable to find flake8 section in INI file");
+
     // Extract all referenced check code prefixes, to power plugin inference.
     let mut referenced_codes: BTreeSet<CheckCodePrefix> = BTreeSet::default();
     for (key, value) in flake8 {
@@ -53,10 +61,15 @@ pub fn convert(
             plugin::resolve_select(
                 flake8,
                 &plugins.unwrap_or_else(|| {
-                    plugin::infer_plugins_from_options(flake8)
-                        .into_iter()
-                        .chain(plugin::infer_plugins_from_codes(&referenced_codes))
-                        .collect()
+                    let from_options = plugin::infer_plugins_from_options(flake8);
+                    if !from_options.is_empty() {
+                        eprintln!("Inferred plugins from settings: {from_options:#?}");
+                    }
+                    let from_codes = plugin::infer_plugins_from_codes(&referenced_codes);
+                    if !from_codes.is_empty() {
+                        eprintln!("Inferred plugins from referenced check codes: {from_codes:#?}");
+                    }
+                    from_options.into_iter().chain(from_codes).collect()
                 }),
             )
         });
@@ -73,6 +86,7 @@ pub fn convert(
     let mut options = Options::default();
     let mut flake8_annotations = flake8_annotations::settings::Options::default();
     let mut flake8_bugbear = flake8_bugbear::settings::Options::default();
+    let mut flake8_errmsg = flake8_errmsg::settings::Options::default();
     let mut flake8_quotes = flake8_quotes::settings::Options::default();
     let mut flake8_tidy_imports = flake8_tidy_imports::settings::Options::default();
     let mut mccabe = mccabe::settings::Options::default();
@@ -194,6 +208,15 @@ pub fn convert(
                     Ok(max_complexity) => mccabe.max_complexity = Some(max_complexity),
                     Err(e) => eprintln!("Unable to parse '{key}' property: {e}"),
                 },
+                // flake8-errmsg
+                "errmsg-max-string-length" | "errmsg_max_string_length" => {
+                    match value.clone().parse::<usize>() {
+                        Ok(max_string_length) => {
+                            flake8_errmsg.max_string_length = Some(max_string_length);
+                        }
+                        Err(e) => eprintln!("Unable to parse '{key}' property: {e}"),
+                    }
+                }
                 // Unknown
                 _ => eprintln!("Skipping unsupported property: {key}"),
             }
@@ -209,6 +232,9 @@ pub fn convert(
     if flake8_bugbear != flake8_bugbear::settings::Options::default() {
         options.flake8_bugbear = Some(flake8_bugbear);
     }
+    if flake8_errmsg != flake8_errmsg::settings::Options::default() {
+        options.flake8_errmsg = Some(flake8_errmsg);
+    }
     if flake8_quotes != flake8_quotes::settings::Options::default() {
         options.flake8_quotes = Some(flake8_quotes);
     }
@@ -220,6 +246,19 @@ pub fn convert(
     }
     if pep8_naming != pep8_naming::settings::Options::default() {
         options.pep8_naming = Some(pep8_naming);
+    }
+
+    // Extract any settings from the existing `pyproject.toml`.
+    if let Some(black) = black {
+        if let Some(line_length) = &black.line_length {
+            options.line_length = Some(*line_length);
+        }
+
+        if let Some(target_version) = &black.target_version {
+            if let Some(target_version) = target_version.iter().min() {
+                options.target_version = Some(*target_version);
+            }
+        }
     }
 
     // Create the pyproject.toml.
@@ -241,11 +280,16 @@ mod tests {
 
     #[test]
     fn it_converts_empty() -> Result<()> {
-        let actual = convert(&HashMap::from([]), None)?;
+        let actual = convert(
+            &HashMap::from([("flake8".to_string(), HashMap::default())]),
+            None,
+            None,
+        )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -253,10 +297,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: None,
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::E,
                 CheckCodePrefix::F,
@@ -266,11 +312,14 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: None,
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,
@@ -284,13 +333,18 @@ mod tests {
     #[test]
     fn it_converts_dashes() -> Result<()> {
         let actual = convert(
-            &HashMap::from([("max-line-length".to_string(), Some("100".to_string()))]),
+            &HashMap::from([(
+                "flake8".to_string(),
+                HashMap::from([("max-line-length".to_string(), Some("100".to_string()))]),
+            )]),
+            None,
             Some(vec![]),
         )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -298,10 +352,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: Some(100),
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::E,
                 CheckCodePrefix::F,
@@ -311,11 +367,14 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: None,
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,
@@ -329,13 +388,18 @@ mod tests {
     #[test]
     fn it_converts_underscores() -> Result<()> {
         let actual = convert(
-            &HashMap::from([("max_line_length".to_string(), Some("100".to_string()))]),
+            &HashMap::from([(
+                "flake8".to_string(),
+                HashMap::from([("max_line_length".to_string(), Some("100".to_string()))]),
+            )]),
+            None,
             Some(vec![]),
         )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -343,10 +407,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: Some(100),
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::E,
                 CheckCodePrefix::F,
@@ -356,11 +422,14 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: None,
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,
@@ -374,13 +443,18 @@ mod tests {
     #[test]
     fn it_ignores_parse_errors() -> Result<()> {
         let actual = convert(
-            &HashMap::from([("max_line_length".to_string(), Some("abc".to_string()))]),
+            &HashMap::from([(
+                "flake8".to_string(),
+                HashMap::from([("max_line_length".to_string(), Some("abc".to_string()))]),
+            )]),
+            None,
             Some(vec![]),
         )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -388,10 +462,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: None,
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::E,
                 CheckCodePrefix::F,
@@ -401,11 +477,14 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: None,
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,
@@ -419,13 +498,18 @@ mod tests {
     #[test]
     fn it_converts_plugin_options() -> Result<()> {
         let actual = convert(
-            &HashMap::from([("inline-quotes".to_string(), Some("single".to_string()))]),
+            &HashMap::from([(
+                "flake8".to_string(),
+                HashMap::from([("inline-quotes".to_string(), Some("single".to_string()))]),
+            )]),
+            None,
             Some(vec![]),
         )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -433,10 +517,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: None,
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::E,
                 CheckCodePrefix::F,
@@ -446,8 +532,10 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: Some(flake8_quotes::settings::Options {
                 inline_quotes: Some(flake8_quotes::settings::Quote::Single),
                 multiline_quotes: None,
@@ -456,6 +544,7 @@ mod tests {
             }),
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,
@@ -470,15 +559,20 @@ mod tests {
     fn it_converts_docstring_conventions() -> Result<()> {
         let actual = convert(
             &HashMap::from([(
-                "docstring-convention".to_string(),
-                Some("numpy".to_string()),
+                "flake8".to_string(),
+                HashMap::from([(
+                    "docstring-convention".to_string(),
+                    Some("numpy".to_string()),
+                )]),
             )]),
+            None,
             Some(vec![Plugin::Flake8Docstrings]),
         )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -486,10 +580,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: None,
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::D100,
                 CheckCodePrefix::D101,
@@ -512,6 +608,7 @@ mod tests {
                 CheckCodePrefix::D214,
                 CheckCodePrefix::D215,
                 CheckCodePrefix::D300,
+                CheckCodePrefix::D301,
                 CheckCodePrefix::D400,
                 CheckCodePrefix::D403,
                 CheckCodePrefix::D404,
@@ -534,11 +631,14 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: None,
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,
@@ -552,13 +652,18 @@ mod tests {
     #[test]
     fn it_infers_plugins_if_omitted() -> Result<()> {
         let actual = convert(
-            &HashMap::from([("inline-quotes".to_string(), Some("single".to_string()))]),
+            &HashMap::from([(
+                "flake8".to_string(),
+                HashMap::from([("inline-quotes".to_string(), Some("single".to_string()))]),
+            )]),
+            None,
             None,
         )?;
         let expected = Pyproject::new(Options {
             allowed_confusables: None,
             dummy_variable_rgx: None,
             exclude: None,
+            extend: None,
             extend_exclude: None,
             extend_ignore: None,
             extend_select: None,
@@ -566,10 +671,12 @@ mod tests {
             fix: None,
             fixable: None,
             format: None,
+            force_exclude: None,
             ignore: Some(vec![]),
             ignore_init_module_imports: None,
             line_length: None,
             per_file_ignores: None,
+            respect_gitignore: None,
             select: Some(vec![
                 CheckCodePrefix::E,
                 CheckCodePrefix::F,
@@ -580,8 +687,10 @@ mod tests {
             src: None,
             target_version: None,
             unfixable: None,
+            cache_dir: None,
             flake8_annotations: None,
             flake8_bugbear: None,
+            flake8_errmsg: None,
             flake8_quotes: Some(flake8_quotes::settings::Options {
                 inline_quotes: Some(flake8_quotes::settings::Quote::Single),
                 multiline_quotes: None,
@@ -590,6 +699,7 @@ mod tests {
             }),
             flake8_tidy_imports: None,
             flake8_import_conventions: None,
+            flake8_unused_arguments: None,
             isort: None,
             mccabe: None,
             pep8_naming: None,

@@ -5,7 +5,7 @@ use crate::ast::types::Range;
 use crate::ast::visitor::Visitor;
 use crate::ast::whitespace::indentation;
 use crate::autofix::Fix;
-use crate::check_ast::Checker;
+use crate::checkers::ast::Checker;
 use crate::checks::{Branch, CheckCode, CheckKind};
 use crate::flake8_return::helpers::result_exists;
 use crate::flake8_return::visitor::{ReturnVisitor, Stack};
@@ -200,6 +200,10 @@ fn unnecessary_assign(checker: &mut Checker, stack: &Stack, expr: &Expr) {
         if has_refs_before_next_assign(id, expr.location, stack)
             || has_refs_or_assigns_within_try_or_loop(id, stack)
         {
+            return;
+        }
+
+        if stack.non_locals.contains(id.as_str()) {
             return;
         }
 

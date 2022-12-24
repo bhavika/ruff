@@ -1,13 +1,18 @@
+use std::path::Path;
+
 use rustpython_ast::{Location, Stmt};
 use textwrap::{dedent, indent};
 
-use crate::ast::helpers::{count_trailing_lines, match_leading_content, match_trailing_content};
+use crate::ast::helpers::{
+    count_trailing_lines, followed_by_multi_statement_line, preceded_by_multi_statement_line,
+};
 use crate::ast::types::Range;
 use crate::ast::whitespace::leading_space;
 use crate::autofix::Fix;
 use crate::checks::CheckKind;
 use crate::isort::track::Block;
 use crate::isort::{comments, format_imports};
+use crate::settings::flags;
 use crate::{Check, Settings, SourceCodeLocator};
 
 fn extract_range(body: &[&Stmt]) -> Range {
@@ -19,14 +24,12 @@ fn extract_range(body: &[&Stmt]) -> Range {
     }
 }
 
-fn extract_indentation(body: &[&Stmt], locator: &SourceCodeLocator) -> String {
+fn extract_indentation_range(body: &[&Stmt]) -> Range {
     let location = body.first().unwrap().location;
-    let range = Range {
+    Range {
         location: Location::new(location.row(), 0),
         end_location: location,
-    };
-    let existing = locator.slice_source_code_range(&range);
-    leading_space(&existing)
+    }
 }
 
 /// I001
@@ -34,10 +37,21 @@ pub fn check_imports(
     block: &Block,
     locator: &SourceCodeLocator,
     settings: &Settings,
-    autofix: bool,
+    autofix: flags::Autofix,
+    package: Option<&Path>,
 ) -> Option<Check> {
+    let indentation = locator.slice_source_code_range(&extract_indentation_range(&block.imports));
+    let indentation = leading_space(&indentation);
+
     let range = extract_range(&block.imports);
-    let indentation = extract_indentation(&block.imports, locator);
+
+    // Special-cases: there's leading or trailing content in the import block. These
+    // are too hard to get right, and relatively rare, so flag but don't fix.
+    if preceded_by_multi_statement_line(block.imports.first().unwrap(), locator)
+        || followed_by_multi_statement_line(block.imports.last().unwrap(), locator)
+    {
+        return Some(Check::new(CheckKind::UnsortedImports, range));
+    }
 
     // Extract comments. Take care to grab any inline comments from the last line.
     let comments = comments::collect_comments(
@@ -48,9 +62,6 @@ pub fn check_imports(
         locator,
     );
 
-    // Special-cases: there's leading or trailing content in the import block.
-    let has_leading_content = match_leading_content(block.imports.first().unwrap(), locator);
-    let has_trailing_content = match_trailing_content(block.imports.last().unwrap(), locator);
     let num_trailing_lines = if block.trailer.is_none() {
         0
     } else {
@@ -63,6 +74,7 @@ pub fn check_imports(
         comments,
         settings.line_length - indentation.len(),
         &settings.src,
+        package,
         &settings.isort.known_first_party,
         &settings.isort.known_third_party,
         &settings.isort.extra_standard_library,
@@ -71,46 +83,25 @@ pub fn check_imports(
         settings.isort.force_wrap_aliases,
     );
 
-    if has_leading_content || has_trailing_content {
+    // Expand the span the entire range, including leading and trailing space.
+    let range = Range {
+        location: Location::new(range.location.row(), 0),
+        end_location: Location::new(range.end_location.row() + 1 + num_trailing_lines, 0),
+    };
+    let actual = dedent(&locator.slice_source_code_range(&range));
+    if actual == expected {
+        None
+    } else {
         let mut check = Check::new(CheckKind::UnsortedImports, range);
-        if autofix && settings.fixable.contains(check.kind.code()) {
-            let mut content = String::new();
-            if has_leading_content {
-                content.push('\n');
-            }
-            content.push_str(&indent(&expected, &indentation));
+        if matches!(autofix, flags::Autofix::Enabled)
+            && settings.fixable.contains(check.kind.code())
+        {
             check.amend(Fix::replacement(
-                content,
-                // Preserve leading prefix (but put the imports on a new line).
-                if has_leading_content {
-                    range.location
-                } else {
-                    Location::new(range.location.row(), 0)
-                },
-                // TODO(charlie): Preserve trailing suffixes. Right now, we strip them.
-                Location::new(range.end_location.row() + 1 + num_trailing_lines, 0),
+                indent(&expected, indentation),
+                range.location,
+                range.end_location,
             ));
         }
         Some(check)
-    } else {
-        // Expand the span the entire range, including leading and trailing space.
-        let range = Range {
-            location: Location::new(range.location.row(), 0),
-            end_location: Location::new(range.end_location.row() + 1 + num_trailing_lines, 0),
-        };
-        let actual = dedent(&locator.slice_source_code_range(&range));
-        if actual == expected {
-            None
-        } else {
-            let mut check = Check::new(CheckKind::UnsortedImports, range);
-            if autofix && settings.fixable.contains(check.kind.code()) {
-                check.amend(Fix::replacement(
-                    indent(&expected, &indentation),
-                    range.location,
-                    range.end_location,
-                ));
-            }
-            Some(check)
-        }
     }
 }

@@ -1,5 +1,4 @@
 use std::fmt;
-use std::str::FromStr;
 
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -33,6 +32,7 @@ use crate::pyupgrade::types::Primitive;
 )]
 pub enum CheckCode {
     // pycodestyle errors
+    E401,
     E402,
     E501,
     E711,
@@ -93,17 +93,21 @@ pub enum CheckCode {
     F823,
     F831,
     F841,
+    F842,
     F901,
     // pylint
     PLC0414,
     PLC2201,
     PLC3002,
+    PLE0117,
+    PLE0118,
     PLE1142,
     PLR0206,
     PLR0402,
     PLR1701,
     PLR1722,
     PLW0120,
+    PLW0602,
     // flake8-builtins
     A001,
     A002,
@@ -202,6 +206,8 @@ pub enum CheckCode {
     YTT301,
     YTT302,
     YTT303,
+    // flake8-simplify
+    SIM118,
     // pyupgrade
     UP001,
     UP003,
@@ -217,6 +223,9 @@ pub enum CheckCode {
     UP013,
     UP014,
     UP015,
+    UP016,
+    UP017,
+    UP018,
     // pydocstyle
     D100,
     D101,
@@ -243,6 +252,7 @@ pub enum CheckCode {
     D214,
     D215,
     D300,
+    D301,
     D400,
     D402,
     D403,
@@ -301,6 +311,16 @@ pub enum CheckCode {
     ARG005,
     // flake8-import-conventions
     ICN001,
+    // flake8-datetimez
+    DTZ001,
+    DTZ002,
+    DTZ003,
+    DTZ004,
+    DTZ005,
+    DTZ006,
+    DTZ007,
+    DTZ011,
+    DTZ012,
     // Ruff
     RUF001,
     RUF002,
@@ -308,6 +328,25 @@ pub enum CheckCode {
     RUF100,
     // pygrep-hooks
     PGH001,
+    PGH002,
+    PGH003,
+    // pandas-vet
+    PD002,
+    PD003,
+    PD004,
+    PD007,
+    PD008,
+    PD009,
+    PD010,
+    PD011,
+    PD012,
+    PD013,
+    PD015,
+    PD901,
+    // flake8-errmsg
+    EM101,
+    EM102,
+    EM103,
 }
 
 #[derive(EnumIter, Debug, PartialEq, Eq)]
@@ -328,13 +367,17 @@ pub enum CheckCategory {
     Flake8Builtins,
     Flake8Comprehensions,
     Flake8Debugger,
+    Flake8ErrMsg,
     Flake8ImportConventions,
     Flake8Print,
     Flake8Quotes,
     Flake8Return,
+    Flake8Simplify,
     Flake8TidyImports,
     Flake8UnusedArguments,
+    Flake8Datetimez,
     Eradicate,
+    PandasVet,
     PygrepHooks,
     Pylint,
     Ruff,
@@ -367,14 +410,18 @@ impl CheckCategory {
             CheckCategory::Flake8Builtins => "flake8-builtins",
             CheckCategory::Flake8Comprehensions => "flake8-comprehensions",
             CheckCategory::Flake8Debugger => "flake8-debugger",
+            CheckCategory::Flake8ErrMsg => "flake8-errmsg",
             CheckCategory::Flake8ImportConventions => "flake8-import-conventions",
             CheckCategory::Flake8Print => "flake8-print",
             CheckCategory::Flake8Quotes => "flake8-quotes",
             CheckCategory::Flake8Return => "flake8-return",
             CheckCategory::Flake8TidyImports => "flake8-tidy-imports",
+            CheckCategory::Flake8Simplify => "flake8-simplify",
             CheckCategory::Flake8UnusedArguments => "flake8-unused-arguments",
+            CheckCategory::Flake8Datetimez => "flake8-datetimez",
             CheckCategory::Isort => "isort",
             CheckCategory::McCabe => "mccabe",
+            CheckCategory::PandasVet => "pandas-vet",
             CheckCategory::PEP8Naming => "pep8-naming",
             CheckCategory::Pycodestyle => "pycodestyle",
             CheckCategory::Pydocstyle => "pydocstyle",
@@ -398,13 +445,17 @@ impl CheckCategory {
             CheckCategory::Flake8Builtins => vec![CheckCodePrefix::A],
             CheckCategory::Flake8Comprehensions => vec![CheckCodePrefix::C4],
             CheckCategory::Flake8Debugger => vec![CheckCodePrefix::T10],
+            CheckCategory::Flake8ErrMsg => vec![CheckCodePrefix::EM],
             CheckCategory::Flake8Print => vec![CheckCodePrefix::T20],
             CheckCategory::Flake8Quotes => vec![CheckCodePrefix::Q],
             CheckCategory::Flake8Return => vec![CheckCodePrefix::RET],
+            CheckCategory::Flake8Simplify => vec![CheckCodePrefix::SIM],
             CheckCategory::Flake8TidyImports => vec![CheckCodePrefix::TID],
             CheckCategory::Flake8UnusedArguments => vec![CheckCodePrefix::ARG],
+            CheckCategory::Flake8Datetimez => vec![CheckCodePrefix::DTZ],
             CheckCategory::Isort => vec![CheckCodePrefix::I],
             CheckCategory::McCabe => vec![CheckCodePrefix::C90],
+            CheckCategory::PandasVet => vec![CheckCodePrefix::PD],
             CheckCategory::PEP8Naming => vec![CheckCodePrefix::N],
             CheckCategory::Pycodestyle => vec![CheckCodePrefix::E, CheckCodePrefix::W],
             CheckCategory::Pydocstyle => vec![CheckCodePrefix::D],
@@ -463,6 +514,10 @@ impl CheckCategory {
                 "https://pypi.org/project/flake8-debugger/4.1.2/",
                 &Platform::PyPI,
             )),
+            CheckCategory::Flake8ErrMsg => Some((
+                "https://pypi.org/project/flake8-errmsg/0.4.0/",
+                &Platform::PyPI,
+            )),
             CheckCategory::Flake8ImportConventions => None,
             CheckCategory::Flake8Print => Some((
                 "https://pypi.org/project/flake8-print/5.0.0/",
@@ -476,6 +531,10 @@ impl CheckCategory {
                 "https://pypi.org/project/flake8-return/1.2.0/",
                 &Platform::PyPI,
             )),
+            CheckCategory::Flake8Simplify => Some((
+                "https://pypi.org/project/flake8-simplify/0.19.3/",
+                &Platform::PyPI,
+            )),
             CheckCategory::Flake8TidyImports => Some((
                 "https://pypi.org/project/flake8-tidy-imports/4.8.0/",
                 &Platform::PyPI,
@@ -484,12 +543,20 @@ impl CheckCategory {
                 "https://pypi.org/project/flake8-unused-arguments/0.0.12/",
                 &Platform::PyPI,
             )),
+            CheckCategory::Flake8Datetimez => Some((
+                "https://pypi.org/project/flake8-datetimez/20.10.0/",
+                &Platform::PyPI,
+            )),
             CheckCategory::Isort => {
                 Some(("https://pypi.org/project/isort/5.10.1/", &Platform::PyPI))
             }
             CheckCategory::McCabe => {
                 Some(("https://pypi.org/project/mccabe/0.7.0/", &Platform::PyPI))
             }
+            CheckCategory::PandasVet => Some((
+                "https://pypi.org/project/pandas-vet/0.2.3/",
+                &Platform::PyPI,
+            )),
             CheckCategory::PEP8Naming => Some((
                 "https://pypi.org/project/pep8-naming/0.13.2/",
                 &Platform::PyPI,
@@ -527,6 +594,7 @@ pub enum LintSource {
     Lines,
     Tokens,
     Imports,
+    NoQA,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -567,6 +635,13 @@ impl fmt::Display for Branch {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnusedCodes {
+    pub unknown: Vec<String>,
+    pub disabled: Vec<String>,
+    pub unmatched: Vec<String>,
+}
+
 #[derive(AsRefStr, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CheckKind {
     // pycodestyle errors
@@ -578,6 +653,7 @@ pub enum CheckKind {
     IOError(String),
     LineTooLong(usize, usize),
     ModuleImportNotAtTopOfFile,
+    MultipleImportsOnOneLine,
     NoneComparison(RejectedCmpop),
     NotInTest,
     NotIsTest,
@@ -627,20 +703,24 @@ pub enum CheckKind {
     TwoStarredExpressions,
     UndefinedExport(String),
     UndefinedLocal(String),
+    UnusedAnnotation(String),
     UndefinedName(String),
     UnusedImport(String, bool),
     UnusedVariable(String),
     YieldOutsideFunction(DeferralKeyword),
     // pylint
-    ConsiderMergingIsinstance(String, Vec<String>),
-    UselessImportAlias,
-    MisplacedComparisonConstant(String),
-    UnnecessaryDirectLambdaCall,
-    PropertyWithParameters,
-    ConsiderUsingFromImport(String, String),
     AwaitOutsideAsync,
-    UselessElseOnLoop,
+    ConsiderMergingIsinstance(String, Vec<String>),
+    ConsiderUsingFromImport(String, String),
+    GlobalVariableNotAssigned(String),
+    MisplacedComparisonConstant(String),
+    NonlocalWithoutBinding(String),
+    PropertyWithParameters,
+    UnnecessaryDirectLambdaCall,
     UseSysExit(String),
+    UsedPriorGlobalDeclaration(String, usize),
+    UselessElseOnLoop,
+    UselessImportAlias,
     // flake8-builtins
     BuiltinVariableShadowing(String),
     BuiltinArgumentShadowing(String),
@@ -722,7 +802,7 @@ pub enum CheckKind {
     MissingTypeCls(String),
     MissingReturnTypePublicFunction(String),
     MissingReturnTypePrivateFunction(String),
-    MissingReturnTypeMagicMethod(String),
+    MissingReturnTypeSpecialMethod(String),
     MissingReturnTypeStaticMethod(String),
     MissingReturnTypeClassMethod(String),
     DynamicallyTypedExpression(String),
@@ -737,6 +817,8 @@ pub enum CheckKind {
     SysVersion0Referenced,
     SysVersionCmpStr10,
     SysVersionSlice1Referenced,
+    // flake8-simplify
+    KeyInDict(String, String),
     // pyupgrade
     TypeOfPrimitive(Primitive),
     UselessMetaclassType,
@@ -752,6 +834,9 @@ pub enum CheckKind {
     ConvertTypedDictFunctionalToClass(String),
     ConvertNamedTupleFunctionalToClass(String),
     RedundantOpenModes,
+    RemoveSixCompat,
+    DatetimeTimezoneUTC,
+    NativeLiterals,
     // pydocstyle
     BlankLineAfterLastSection(String),
     BlankLineAfterSection(String),
@@ -796,6 +881,7 @@ pub enum CheckKind {
     SectionUnderlineMatchesSectionLength(String),
     SectionUnderlineNotOverIndented(String),
     SkipDocstring,
+    UsesRPrefixForBackslashedContent,
     UsesTripleQuotes,
     // pep8-naming
     InvalidClassName(String),
@@ -832,6 +918,8 @@ pub enum CheckKind {
     BooleanPositionalValueInFunctionCall,
     // pygrep-hooks
     NoEval,
+    DeprecatedLogWarn,
+    BlanketTypeIgnore,
     // flake8-unused-arguments
     UnusedFunctionArgument(String),
     UnusedMethodArgument(String),
@@ -840,11 +928,38 @@ pub enum CheckKind {
     UnusedLambdaArgument(String),
     // flake8-import-conventions
     ImportAliasIsNotConventional(String, String),
+    // pandas-vet
+    UseOfInplaceArgument,
+    UseOfDotIsNull,
+    UseOfDotNotNull,
+    UseOfDotIx,
+    UseOfDotAt,
+    UseOfDotIat,
+    UseOfDotPivotOrUnstack,
+    UseOfDotValues,
+    UseOfDotReadTable,
+    UseOfDotStack,
+    UseOfPdMerge,
+    DfIsABadVariableName,
+    // flake8-errmsg
+    RawStringInException,
+    FStringInException,
+    DotFormatInException,
     // Ruff
     AmbiguousUnicodeCharacterString(char, char),
     AmbiguousUnicodeCharacterDocstring(char, char),
     AmbiguousUnicodeCharacterComment(char, char),
-    UnusedNOQA(Option<Vec<String>>),
+    UnusedNOQA(Option<UnusedCodes>),
+    // flake8-datetimez
+    CallDatetimeWithoutTzinfo,
+    CallDatetimeToday,
+    CallDatetimeUtcnow,
+    CallDatetimeUtcfromtimestamp,
+    CallDatetimeNowWithoutTzinfo,
+    CallDatetimeFromtimestamp,
+    CallDatetimeStrptimeWithoutZone,
+    CallDateToday,
+    CallDateFromtimestamp,
 }
 
 impl CheckCode {
@@ -852,7 +967,8 @@ impl CheckCode {
     /// physical lines).
     pub fn lint_source(&self) -> &'static LintSource {
         match self {
-            CheckCode::E501 | CheckCode::W292 | CheckCode::RUF100 | CheckCode::UP009 => {
+            CheckCode::RUF100 => &LintSource::NoQA,
+            CheckCode::E501 | CheckCode::W292 | CheckCode::UP009 | CheckCode::PGH003 => {
                 &LintSource::Lines
             }
             CheckCode::ERA001
@@ -874,6 +990,7 @@ impl CheckCode {
     pub fn kind(&self) -> CheckKind {
         match self {
             // pycodestyle errors
+            CheckCode::E401 => CheckKind::MultipleImportsOnOneLine,
             CheckCode::E402 => CheckKind::ModuleImportNotAtTopOfFile,
             CheckCode::E501 => CheckKind::LineTooLong(89, 88),
             CheckCode::E711 => CheckKind::NoneComparison(RejectedCmpop::Eq),
@@ -940,11 +1057,14 @@ impl CheckCode {
             CheckCode::F823 => CheckKind::UndefinedLocal("...".to_string()),
             CheckCode::F831 => CheckKind::DuplicateArgumentName,
             CheckCode::F841 => CheckKind::UnusedVariable("...".to_string()),
+            CheckCode::F842 => CheckKind::UnusedAnnotation("...".to_string()),
             CheckCode::F901 => CheckKind::RaiseNotImplemented,
             // pylint
             CheckCode::PLC0414 => CheckKind::UselessImportAlias,
             CheckCode::PLC2201 => CheckKind::MisplacedComparisonConstant("...".to_string()),
             CheckCode::PLC3002 => CheckKind::UnnecessaryDirectLambdaCall,
+            CheckCode::PLE0117 => CheckKind::NonlocalWithoutBinding("...".to_string()),
+            CheckCode::PLE0118 => CheckKind::UsedPriorGlobalDeclaration("...".to_string(), 1),
             CheckCode::PLE1142 => CheckKind::AwaitOutsideAsync,
             CheckCode::PLR0402 => {
                 CheckKind::ConsiderUsingFromImport("...".to_string(), "...".to_string())
@@ -955,6 +1075,7 @@ impl CheckCode {
             }
             CheckCode::PLR1722 => CheckKind::UseSysExit("exit".to_string()),
             CheckCode::PLW0120 => CheckKind::UselessElseOnLoop,
+            CheckCode::PLW0602 => CheckKind::GlobalVariableNotAssigned("...".to_string()),
             // flake8-builtins
             CheckCode::A001 => CheckKind::BuiltinVariableShadowing("...".to_string()),
             CheckCode::A002 => CheckKind::BuiltinArgumentShadowing("...".to_string()),
@@ -1051,7 +1172,7 @@ impl CheckCode {
             CheckCode::ANN102 => CheckKind::MissingTypeCls("...".to_string()),
             CheckCode::ANN201 => CheckKind::MissingReturnTypePublicFunction("...".to_string()),
             CheckCode::ANN202 => CheckKind::MissingReturnTypePrivateFunction("...".to_string()),
-            CheckCode::ANN204 => CheckKind::MissingReturnTypeMagicMethod("...".to_string()),
+            CheckCode::ANN204 => CheckKind::MissingReturnTypeSpecialMethod("...".to_string()),
             CheckCode::ANN205 => CheckKind::MissingReturnTypeStaticMethod("...".to_string()),
             CheckCode::ANN206 => CheckKind::MissingReturnTypeClassMethod("...".to_string()),
             CheckCode::ANN401 => CheckKind::DynamicallyTypedExpression("...".to_string()),
@@ -1068,6 +1189,8 @@ impl CheckCode {
             CheckCode::YTT303 => CheckKind::SysVersionSlice1Referenced,
             // flake8-blind-except
             CheckCode::BLE001 => CheckKind::BlindExcept("Exception".to_string()),
+            // flake8-simplify
+            CheckCode::SIM118 => CheckKind::KeyInDict("key".to_string(), "dict".to_string()),
             // pyupgrade
             CheckCode::UP001 => CheckKind::UselessMetaclassType,
             CheckCode::UP003 => CheckKind::TypeOfPrimitive(Primitive::Str),
@@ -1086,6 +1209,9 @@ impl CheckCode {
             CheckCode::UP013 => CheckKind::ConvertTypedDictFunctionalToClass("...".to_string()),
             CheckCode::UP014 => CheckKind::ConvertNamedTupleFunctionalToClass("...".to_string()),
             CheckCode::UP015 => CheckKind::RedundantOpenModes,
+            CheckCode::UP016 => CheckKind::RemoveSixCompat,
+            CheckCode::UP017 => CheckKind::DatetimeTimezoneUTC,
+            CheckCode::UP018 => CheckKind::NativeLiterals,
             // pydocstyle
             CheckCode::D100 => CheckKind::PublicModule,
             CheckCode::D101 => CheckKind::PublicClass,
@@ -1112,6 +1238,7 @@ impl CheckCode {
             CheckCode::D214 => CheckKind::SectionNotOverIndented("Returns".to_string()),
             CheckCode::D215 => CheckKind::SectionUnderlineNotOverIndented("Returns".to_string()),
             CheckCode::D300 => CheckKind::UsesTripleQuotes,
+            CheckCode::D301 => CheckKind::UsesRPrefixForBackslashedContent,
             CheckCode::D400 => CheckKind::EndsInPeriod,
             CheckCode::D402 => CheckKind::NoSignature,
             CheckCode::D403 => CheckKind::FirstLineCapitalized,
@@ -1181,6 +1308,8 @@ impl CheckCode {
             CheckCode::FBT003 => CheckKind::BooleanPositionalValueInFunctionCall,
             // pygrep-hooks
             CheckCode::PGH001 => CheckKind::NoEval,
+            CheckCode::PGH002 => CheckKind::DeprecatedLogWarn,
+            CheckCode::PGH003 => CheckKind::BlanketTypeIgnore,
             // flake8-unused-arguments
             CheckCode::ARG001 => CheckKind::UnusedFunctionArgument("...".to_string()),
             CheckCode::ARG002 => CheckKind::UnusedMethodArgument("...".to_string()),
@@ -1191,6 +1320,33 @@ impl CheckCode {
             CheckCode::ICN001 => {
                 CheckKind::ImportAliasIsNotConventional("...".to_string(), "...".to_string())
             }
+            // pandas-vet
+            CheckCode::PD002 => CheckKind::UseOfInplaceArgument,
+            CheckCode::PD003 => CheckKind::UseOfDotIsNull,
+            CheckCode::PD004 => CheckKind::UseOfDotNotNull,
+            CheckCode::PD007 => CheckKind::UseOfDotIx,
+            CheckCode::PD008 => CheckKind::UseOfDotAt,
+            CheckCode::PD009 => CheckKind::UseOfDotIat,
+            CheckCode::PD010 => CheckKind::UseOfDotPivotOrUnstack,
+            CheckCode::PD011 => CheckKind::UseOfDotValues,
+            CheckCode::PD012 => CheckKind::UseOfDotReadTable,
+            CheckCode::PD013 => CheckKind::UseOfDotStack,
+            CheckCode::PD015 => CheckKind::UseOfPdMerge,
+            CheckCode::PD901 => CheckKind::DfIsABadVariableName,
+            // flake8-errmsg
+            CheckCode::EM101 => CheckKind::RawStringInException,
+            CheckCode::EM102 => CheckKind::FStringInException,
+            CheckCode::EM103 => CheckKind::DotFormatInException,
+            // flake8-datetimez
+            CheckCode::DTZ001 => CheckKind::CallDatetimeWithoutTzinfo,
+            CheckCode::DTZ002 => CheckKind::CallDatetimeToday,
+            CheckCode::DTZ003 => CheckKind::CallDatetimeUtcnow,
+            CheckCode::DTZ004 => CheckKind::CallDatetimeUtcfromtimestamp,
+            CheckCode::DTZ005 => CheckKind::CallDatetimeNowWithoutTzinfo,
+            CheckCode::DTZ006 => CheckKind::CallDatetimeFromtimestamp,
+            CheckCode::DTZ007 => CheckKind::CallDatetimeStrptimeWithoutZone,
+            CheckCode::DTZ011 => CheckKind::CallDateToday,
+            CheckCode::DTZ012 => CheckKind::CallDateFromtimestamp,
             // Ruff
             CheckCode::RUF001 => CheckKind::AmbiguousUnicodeCharacterString('𝐁', 'B'),
             CheckCode::RUF002 => CheckKind::AmbiguousUnicodeCharacterDocstring('𝐁', 'B'),
@@ -1292,6 +1448,7 @@ impl CheckCode {
             CheckCode::D214 => CheckCategory::Pydocstyle,
             CheckCode::D215 => CheckCategory::Pydocstyle,
             CheckCode::D300 => CheckCategory::Pydocstyle,
+            CheckCode::D301 => CheckCategory::Pydocstyle,
             CheckCode::D400 => CheckCategory::Pydocstyle,
             CheckCode::D402 => CheckCategory::Pydocstyle,
             CheckCode::D403 => CheckCategory::Pydocstyle,
@@ -1311,6 +1468,16 @@ impl CheckCode {
             CheckCode::D417 => CheckCategory::Pydocstyle,
             CheckCode::D418 => CheckCategory::Pydocstyle,
             CheckCode::D419 => CheckCategory::Pydocstyle,
+            CheckCode::DTZ001 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ002 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ003 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ004 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ005 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ006 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ007 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ011 => CheckCategory::Flake8Datetimez,
+            CheckCode::DTZ012 => CheckCategory::Flake8Datetimez,
+            CheckCode::E401 => CheckCategory::Pycodestyle,
             CheckCode::E402 => CheckCategory::Pycodestyle,
             CheckCode::E501 => CheckCategory::Pycodestyle,
             CheckCode::E711 => CheckCategory::Pycodestyle,
@@ -1325,6 +1492,9 @@ impl CheckCode {
             CheckCode::E743 => CheckCategory::Pycodestyle,
             CheckCode::E902 => CheckCategory::Pycodestyle,
             CheckCode::E999 => CheckCategory::Pycodestyle,
+            CheckCode::EM101 => CheckCategory::Flake8ErrMsg,
+            CheckCode::EM102 => CheckCategory::Flake8ErrMsg,
+            CheckCode::EM103 => CheckCategory::Flake8ErrMsg,
             CheckCode::ERA001 => CheckCategory::Eradicate,
             CheckCode::F401 => CheckCategory::Pyflakes,
             CheckCode::F402 => CheckCategory::Pyflakes,
@@ -1368,6 +1538,7 @@ impl CheckCode {
             CheckCode::F823 => CheckCategory::Pyflakes,
             CheckCode::F831 => CheckCategory::Pyflakes,
             CheckCode::F841 => CheckCategory::Pyflakes,
+            CheckCode::F842 => CheckCategory::Pyflakes,
             CheckCode::F901 => CheckCategory::Pyflakes,
             CheckCode::FBT001 => CheckCategory::Flake8BooleanTrap,
             CheckCode::FBT002 => CheckCategory::Flake8BooleanTrap,
@@ -1390,16 +1561,33 @@ impl CheckCode {
             CheckCode::N816 => CheckCategory::PEP8Naming,
             CheckCode::N817 => CheckCategory::PEP8Naming,
             CheckCode::N818 => CheckCategory::PEP8Naming,
+            CheckCode::PD002 => CheckCategory::PandasVet,
+            CheckCode::PD003 => CheckCategory::PandasVet,
+            CheckCode::PD004 => CheckCategory::PandasVet,
+            CheckCode::PD007 => CheckCategory::PandasVet,
+            CheckCode::PD008 => CheckCategory::PandasVet,
+            CheckCode::PD009 => CheckCategory::PandasVet,
+            CheckCode::PD010 => CheckCategory::PandasVet,
+            CheckCode::PD011 => CheckCategory::PandasVet,
+            CheckCode::PD012 => CheckCategory::PandasVet,
+            CheckCode::PD013 => CheckCategory::PandasVet,
+            CheckCode::PD015 => CheckCategory::PandasVet,
+            CheckCode::PD901 => CheckCategory::PandasVet,
             CheckCode::PGH001 => CheckCategory::PygrepHooks,
+            CheckCode::PGH002 => CheckCategory::PygrepHooks,
+            CheckCode::PGH003 => CheckCategory::PygrepHooks,
             CheckCode::PLC0414 => CheckCategory::Pylint,
             CheckCode::PLC2201 => CheckCategory::Pylint,
             CheckCode::PLC3002 => CheckCategory::Pylint,
+            CheckCode::PLE0117 => CheckCategory::Pylint,
+            CheckCode::PLE0118 => CheckCategory::Pylint,
             CheckCode::PLE1142 => CheckCategory::Pylint,
             CheckCode::PLR0206 => CheckCategory::Pylint,
             CheckCode::PLR0402 => CheckCategory::Pylint,
             CheckCode::PLR1701 => CheckCategory::Pylint,
             CheckCode::PLR1722 => CheckCategory::Pylint,
             CheckCode::PLW0120 => CheckCategory::Pylint,
+            CheckCode::PLW0602 => CheckCategory::Pylint,
             CheckCode::Q000 => CheckCategory::Flake8Quotes,
             CheckCode::Q001 => CheckCategory::Flake8Quotes,
             CheckCode::Q002 => CheckCategory::Flake8Quotes,
@@ -1422,6 +1610,7 @@ impl CheckCode {
             CheckCode::S105 => CheckCategory::Flake8Bandit,
             CheckCode::S106 => CheckCategory::Flake8Bandit,
             CheckCode::S107 => CheckCategory::Flake8Bandit,
+            CheckCode::SIM118 => CheckCategory::Flake8Simplify,
             CheckCode::T100 => CheckCategory::Flake8Debugger,
             CheckCode::T201 => CheckCategory::Flake8Print,
             CheckCode::T203 => CheckCategory::Flake8Print,
@@ -1439,6 +1628,9 @@ impl CheckCode {
             CheckCode::UP013 => CheckCategory::Pyupgrade,
             CheckCode::UP014 => CheckCategory::Pyupgrade,
             CheckCode::UP015 => CheckCategory::Pyupgrade,
+            CheckCode::UP016 => CheckCategory::Pyupgrade,
+            CheckCode::UP017 => CheckCategory::Pyupgrade,
+            CheckCode::UP018 => CheckCategory::Pyupgrade,
             CheckCode::W292 => CheckCategory::Pycodestyle,
             CheckCode::W605 => CheckCategory::Pycodestyle,
             CheckCode::YTT101 => CheckCategory::Flake82020,
@@ -1460,9 +1652,9 @@ impl CheckKind {
     pub fn code(&self) -> &'static CheckCode {
         match self {
             // pycodestyle errors
-            CheckKind::AmbiguousClassName(_) => &CheckCode::E742,
-            CheckKind::AmbiguousFunctionName(_) => &CheckCode::E743,
-            CheckKind::AmbiguousVariableName(_) => &CheckCode::E741,
+            CheckKind::AmbiguousClassName(..) => &CheckCode::E742,
+            CheckKind::AmbiguousFunctionName(..) => &CheckCode::E743,
+            CheckKind::AmbiguousVariableName(..) => &CheckCode::E741,
             CheckKind::AssertTuple => &CheckCode::F631,
             CheckKind::BreakOutsideLoop => &CheckCode::F701,
             CheckKind::ContinueOutsideLoop => &CheckCode::F702,
@@ -1471,150 +1663,155 @@ impl CheckKind {
             CheckKind::DoNotUseBareExcept => &CheckCode::E722,
             CheckKind::DuplicateArgumentName => &CheckCode::F831,
             CheckKind::FStringMissingPlaceholders => &CheckCode::F541,
-            CheckKind::ForwardAnnotationSyntaxError(_) => &CheckCode::F722,
-            CheckKind::FutureFeatureNotDefined(_) => &CheckCode::F407,
-            CheckKind::IOError(_) => &CheckCode::E902,
+            CheckKind::ForwardAnnotationSyntaxError(..) => &CheckCode::F722,
+            CheckKind::FutureFeatureNotDefined(..) => &CheckCode::F407,
+            CheckKind::IOError(..) => &CheckCode::E902,
             CheckKind::IfTuple => &CheckCode::F634,
             CheckKind::ImportShadowedByLoopVar(..) => &CheckCode::F402,
-            CheckKind::ImportStarNotPermitted(_) => &CheckCode::F406,
+            CheckKind::ImportStarNotPermitted(..) => &CheckCode::F406,
             CheckKind::ImportStarUsage(..) => &CheckCode::F405,
-            CheckKind::ImportStarUsed(_) => &CheckCode::F403,
+            CheckKind::ImportStarUsed(..) => &CheckCode::F403,
             CheckKind::InvalidPrintSyntax => &CheckCode::F633,
             CheckKind::IsLiteral => &CheckCode::F632,
             CheckKind::LateFutureImport => &CheckCode::F404,
             CheckKind::LineTooLong(..) => &CheckCode::E501,
+            CheckKind::MultipleImportsOnOneLine => &CheckCode::E401,
             CheckKind::ModuleImportNotAtTopOfFile => &CheckCode::E402,
             CheckKind::MultiValueRepeatedKeyLiteral => &CheckCode::F601,
-            CheckKind::MultiValueRepeatedKeyVariable(_) => &CheckCode::F602,
-            CheckKind::NoneComparison(_) => &CheckCode::E711,
+            CheckKind::MultiValueRepeatedKeyVariable(..) => &CheckCode::F602,
+            CheckKind::NoneComparison(..) => &CheckCode::E711,
             CheckKind::NotInTest => &CheckCode::E713,
             CheckKind::NotIsTest => &CheckCode::E714,
             CheckKind::PercentFormatExpectedMapping => &CheckCode::F502,
             CheckKind::PercentFormatExpectedSequence => &CheckCode::F503,
-            CheckKind::PercentFormatExtraNamedArguments(_) => &CheckCode::F504,
-            CheckKind::PercentFormatInvalidFormat(_) => &CheckCode::F501,
-            CheckKind::PercentFormatMissingArgument(_) => &CheckCode::F505,
+            CheckKind::PercentFormatExtraNamedArguments(..) => &CheckCode::F504,
+            CheckKind::PercentFormatInvalidFormat(..) => &CheckCode::F501,
+            CheckKind::PercentFormatMissingArgument(..) => &CheckCode::F505,
             CheckKind::PercentFormatMixedPositionalAndNamed => &CheckCode::F506,
             CheckKind::PercentFormatPositionalCountMismatch(..) => &CheckCode::F507,
             CheckKind::PercentFormatStarRequiresSequence => &CheckCode::F508,
-            CheckKind::PercentFormatUnsupportedFormatCharacter(_) => &CheckCode::F509,
+            CheckKind::PercentFormatUnsupportedFormatCharacter(..) => &CheckCode::F509,
             CheckKind::RaiseNotImplemented => &CheckCode::F901,
             CheckKind::ReturnOutsideFunction => &CheckCode::F706,
-            CheckKind::StringDotFormatExtraNamedArguments(_) => &CheckCode::F522,
-            CheckKind::StringDotFormatExtraPositionalArguments(_) => &CheckCode::F523,
-            CheckKind::StringDotFormatInvalidFormat(_) => &CheckCode::F521,
-            CheckKind::StringDotFormatMissingArguments(_) => &CheckCode::F524,
+            CheckKind::StringDotFormatExtraNamedArguments(..) => &CheckCode::F522,
+            CheckKind::StringDotFormatExtraPositionalArguments(..) => &CheckCode::F523,
+            CheckKind::StringDotFormatInvalidFormat(..) => &CheckCode::F521,
+            CheckKind::StringDotFormatMissingArguments(..) => &CheckCode::F524,
             CheckKind::StringDotFormatMixingAutomatic => &CheckCode::F525,
-            CheckKind::SyntaxError(_) => &CheckCode::E999,
+            CheckKind::SyntaxError(..) => &CheckCode::E999,
             CheckKind::ExpressionsInStarAssignment => &CheckCode::F621,
             CheckKind::TrueFalseComparison(..) => &CheckCode::E712,
             CheckKind::TwoStarredExpressions => &CheckCode::F622,
             CheckKind::TypeComparison => &CheckCode::E721,
-            CheckKind::UndefinedExport(_) => &CheckCode::F822,
-            CheckKind::UndefinedLocal(_) => &CheckCode::F823,
+            CheckKind::UndefinedExport(..) => &CheckCode::F822,
+            CheckKind::UndefinedLocal(..) => &CheckCode::F823,
             CheckKind::RedefinedWhileUnused(..) => &CheckCode::F811,
-            CheckKind::UndefinedName(_) => &CheckCode::F821,
+            CheckKind::UndefinedName(..) => &CheckCode::F821,
             CheckKind::UnusedImport(..) => &CheckCode::F401,
-            CheckKind::UnusedVariable(_) => &CheckCode::F841,
-            CheckKind::YieldOutsideFunction(_) => &CheckCode::F704,
+            CheckKind::UnusedVariable(..) => &CheckCode::F841,
+            CheckKind::UnusedAnnotation(..) => &CheckCode::F842,
+            CheckKind::YieldOutsideFunction(..) => &CheckCode::F704,
             // pycodestyle warnings
             CheckKind::NoNewLineAtEndOfFile => &CheckCode::W292,
-            CheckKind::InvalidEscapeSequence(_) => &CheckCode::W605,
+            CheckKind::InvalidEscapeSequence(..) => &CheckCode::W605,
             // pylint
-            CheckKind::UselessImportAlias => &CheckCode::PLC0414,
-            CheckKind::MisplacedComparisonConstant(..) => &CheckCode::PLC2201,
-            CheckKind::UnnecessaryDirectLambdaCall => &CheckCode::PLC3002,
             CheckKind::AwaitOutsideAsync => &CheckCode::PLE1142,
             CheckKind::ConsiderMergingIsinstance(..) => &CheckCode::PLR1701,
-            CheckKind::PropertyWithParameters => &CheckCode::PLR0206,
             CheckKind::ConsiderUsingFromImport(..) => &CheckCode::PLR0402,
-            CheckKind::UseSysExit(_) => &CheckCode::PLR1722,
+            CheckKind::GlobalVariableNotAssigned(..) => &CheckCode::PLW0602,
+            CheckKind::MisplacedComparisonConstant(..) => &CheckCode::PLC2201,
+            CheckKind::PropertyWithParameters => &CheckCode::PLR0206,
+            CheckKind::UnnecessaryDirectLambdaCall => &CheckCode::PLC3002,
+            CheckKind::UseSysExit(..) => &CheckCode::PLR1722,
+            CheckKind::NonlocalWithoutBinding(..) => &CheckCode::PLE0117,
+            CheckKind::UsedPriorGlobalDeclaration(..) => &CheckCode::PLE0118,
             CheckKind::UselessElseOnLoop => &CheckCode::PLW0120,
+            CheckKind::UselessImportAlias => &CheckCode::PLC0414,
             // flake8-builtins
-            CheckKind::BuiltinVariableShadowing(_) => &CheckCode::A001,
-            CheckKind::BuiltinArgumentShadowing(_) => &CheckCode::A002,
-            CheckKind::BuiltinAttributeShadowing(_) => &CheckCode::A003,
+            CheckKind::BuiltinVariableShadowing(..) => &CheckCode::A001,
+            CheckKind::BuiltinArgumentShadowing(..) => &CheckCode::A002,
+            CheckKind::BuiltinAttributeShadowing(..) => &CheckCode::A003,
             // flake8-bugbear
-            CheckKind::AbstractBaseClassWithoutAbstractMethod(_) => &CheckCode::B024,
+            CheckKind::AbstractBaseClassWithoutAbstractMethod(..) => &CheckCode::B024,
             CheckKind::AssignmentToOsEnviron => &CheckCode::B003,
             CheckKind::CachedInstanceMethod => &CheckCode::B019,
             CheckKind::CannotRaiseLiteral => &CheckCode::B016,
             CheckKind::DoNotAssertFalse => &CheckCode::B011,
-            CheckKind::DuplicateHandlerException(_) => &CheckCode::B014,
-            CheckKind::DuplicateTryBlockException(_) => &CheckCode::B025,
-            CheckKind::EmptyMethodWithoutAbstractDecorator(_) => &CheckCode::B027,
+            CheckKind::DuplicateHandlerException(..) => &CheckCode::B014,
+            CheckKind::DuplicateTryBlockException(..) => &CheckCode::B025,
+            CheckKind::EmptyMethodWithoutAbstractDecorator(..) => &CheckCode::B027,
             CheckKind::FStringDocstring => &CheckCode::B021,
-            CheckKind::FunctionCallArgumentDefault(_) => &CheckCode::B008,
-            CheckKind::FunctionUsesLoopVariable(_) => &CheckCode::B023,
+            CheckKind::FunctionCallArgumentDefault(..) => &CheckCode::B008,
+            CheckKind::FunctionUsesLoopVariable(..) => &CheckCode::B023,
             CheckKind::GetAttrWithConstant => &CheckCode::B009,
-            CheckKind::JumpStatementInFinally(_) => &CheckCode::B012,
-            CheckKind::LoopVariableOverridesIterator(_) => &CheckCode::B020,
+            CheckKind::JumpStatementInFinally(..) => &CheckCode::B012,
+            CheckKind::LoopVariableOverridesIterator(..) => &CheckCode::B020,
             CheckKind::MutableArgumentDefault => &CheckCode::B006,
             CheckKind::NoAssertRaisesException => &CheckCode::B017,
             CheckKind::RaiseWithoutFromInsideExcept => &CheckCode::B904,
             CheckKind::ZipWithoutExplicitStrict => &CheckCode::B905,
-            CheckKind::RedundantTupleInExceptionHandler(_) => &CheckCode::B013,
+            CheckKind::RedundantTupleInExceptionHandler(..) => &CheckCode::B013,
             CheckKind::SetAttrWithConstant => &CheckCode::B010,
             CheckKind::StarArgUnpackingAfterKeywordArg => &CheckCode::B026,
             CheckKind::StripWithMultiCharacters => &CheckCode::B005,
             CheckKind::UnaryPrefixIncrement => &CheckCode::B002,
             CheckKind::UnreliableCallableCheck => &CheckCode::B004,
-            CheckKind::UnusedLoopControlVariable(_) => &CheckCode::B007,
+            CheckKind::UnusedLoopControlVariable(..) => &CheckCode::B007,
             CheckKind::UselessComparison => &CheckCode::B015,
             CheckKind::UselessContextlibSuppress => &CheckCode::B022,
             CheckKind::UselessExpression => &CheckCode::B018,
             // flake8-blind-except
-            CheckKind::BlindExcept(_) => &CheckCode::BLE001,
+            CheckKind::BlindExcept(..) => &CheckCode::BLE001,
             // flake8-comprehensions
             CheckKind::UnnecessaryGeneratorList => &CheckCode::C400,
             CheckKind::UnnecessaryGeneratorSet => &CheckCode::C401,
             CheckKind::UnnecessaryGeneratorDict => &CheckCode::C402,
             CheckKind::UnnecessaryListComprehensionSet => &CheckCode::C403,
             CheckKind::UnnecessaryListComprehensionDict => &CheckCode::C404,
-            CheckKind::UnnecessaryLiteralSet(_) => &CheckCode::C405,
-            CheckKind::UnnecessaryLiteralDict(_) => &CheckCode::C406,
-            CheckKind::UnnecessaryCollectionCall(_) => &CheckCode::C408,
+            CheckKind::UnnecessaryLiteralSet(..) => &CheckCode::C405,
+            CheckKind::UnnecessaryLiteralDict(..) => &CheckCode::C406,
+            CheckKind::UnnecessaryCollectionCall(..) => &CheckCode::C408,
             CheckKind::UnnecessaryLiteralWithinTupleCall(..) => &CheckCode::C409,
             CheckKind::UnnecessaryLiteralWithinListCall(..) => &CheckCode::C410,
             CheckKind::UnnecessaryListCall => &CheckCode::C411,
-            CheckKind::UnnecessaryCallAroundSorted(_) => &CheckCode::C413,
+            CheckKind::UnnecessaryCallAroundSorted(..) => &CheckCode::C413,
             CheckKind::UnnecessaryDoubleCastOrProcess(..) => &CheckCode::C414,
-            CheckKind::UnnecessarySubscriptReversal(_) => &CheckCode::C415,
+            CheckKind::UnnecessarySubscriptReversal(..) => &CheckCode::C415,
             CheckKind::UnnecessaryComprehension(..) => &CheckCode::C416,
-            CheckKind::UnnecessaryMap(_) => &CheckCode::C417,
+            CheckKind::UnnecessaryMap(..) => &CheckCode::C417,
             // flake8-debugger
-            CheckKind::Debugger(_) => &CheckCode::T100,
+            CheckKind::Debugger(..) => &CheckCode::T100,
             // flake8-tidy-imports
-            CheckKind::BannedRelativeImport(_) => &CheckCode::TID252,
+            CheckKind::BannedRelativeImport(..) => &CheckCode::TID252,
             // flake8-return
             CheckKind::UnnecessaryReturnNone => &CheckCode::RET501,
             CheckKind::ImplicitReturnValue => &CheckCode::RET502,
             CheckKind::ImplicitReturn => &CheckCode::RET503,
             CheckKind::UnnecessaryAssign => &CheckCode::RET504,
-            CheckKind::SuperfluousElseReturn(_) => &CheckCode::RET505,
-            CheckKind::SuperfluousElseRaise(_) => &CheckCode::RET506,
-            CheckKind::SuperfluousElseContinue(_) => &CheckCode::RET507,
-            CheckKind::SuperfluousElseBreak(_) => &CheckCode::RET508,
+            CheckKind::SuperfluousElseReturn(..) => &CheckCode::RET505,
+            CheckKind::SuperfluousElseRaise(..) => &CheckCode::RET506,
+            CheckKind::SuperfluousElseContinue(..) => &CheckCode::RET507,
+            CheckKind::SuperfluousElseBreak(..) => &CheckCode::RET508,
             // flake8-print
             CheckKind::PrintFound => &CheckCode::T201,
             CheckKind::PPrintFound => &CheckCode::T203,
             // flake8-quotes
-            CheckKind::BadQuotesInlineString(_) => &CheckCode::Q000,
-            CheckKind::BadQuotesMultilineString(_) => &CheckCode::Q001,
-            CheckKind::BadQuotesDocstring(_) => &CheckCode::Q002,
+            CheckKind::BadQuotesInlineString(..) => &CheckCode::Q000,
+            CheckKind::BadQuotesMultilineString(..) => &CheckCode::Q001,
+            CheckKind::BadQuotesDocstring(..) => &CheckCode::Q002,
             CheckKind::AvoidQuoteEscape => &CheckCode::Q003,
             // flake8-annotations
-            CheckKind::MissingTypeFunctionArgument(_) => &CheckCode::ANN001,
-            CheckKind::MissingTypeArgs(_) => &CheckCode::ANN002,
-            CheckKind::MissingTypeKwargs(_) => &CheckCode::ANN003,
-            CheckKind::MissingTypeSelf(_) => &CheckCode::ANN101,
-            CheckKind::MissingTypeCls(_) => &CheckCode::ANN102,
-            CheckKind::MissingReturnTypePublicFunction(_) => &CheckCode::ANN201,
-            CheckKind::MissingReturnTypePrivateFunction(_) => &CheckCode::ANN202,
-            CheckKind::MissingReturnTypeMagicMethod(_) => &CheckCode::ANN204,
-            CheckKind::MissingReturnTypeStaticMethod(_) => &CheckCode::ANN205,
-            CheckKind::MissingReturnTypeClassMethod(_) => &CheckCode::ANN206,
-            CheckKind::DynamicallyTypedExpression(_) => &CheckCode::ANN401,
+            CheckKind::MissingTypeFunctionArgument(..) => &CheckCode::ANN001,
+            CheckKind::MissingTypeArgs(..) => &CheckCode::ANN002,
+            CheckKind::MissingTypeKwargs(..) => &CheckCode::ANN003,
+            CheckKind::MissingTypeSelf(..) => &CheckCode::ANN101,
+            CheckKind::MissingTypeCls(..) => &CheckCode::ANN102,
+            CheckKind::MissingReturnTypePublicFunction(..) => &CheckCode::ANN201,
+            CheckKind::MissingReturnTypePrivateFunction(..) => &CheckCode::ANN202,
+            CheckKind::MissingReturnTypeSpecialMethod(..) => &CheckCode::ANN204,
+            CheckKind::MissingReturnTypeStaticMethod(..) => &CheckCode::ANN205,
+            CheckKind::MissingReturnTypeClassMethod(..) => &CheckCode::ANN206,
+            CheckKind::DynamicallyTypedExpression(..) => &CheckCode::ANN401,
             // flake8-2020
             CheckKind::SysVersionSlice3Referenced => &CheckCode::YTT101,
             CheckKind::SysVersion2Referenced => &CheckCode::YTT102,
@@ -1626,28 +1823,33 @@ impl CheckKind {
             CheckKind::SysVersion0Referenced => &CheckCode::YTT301,
             CheckKind::SysVersionCmpStr10 => &CheckCode::YTT302,
             CheckKind::SysVersionSlice1Referenced => &CheckCode::YTT303,
+            // flake8-simplify
+            CheckKind::KeyInDict(..) => &CheckCode::SIM118,
             // pyupgrade
-            CheckKind::TypeOfPrimitive(_) => &CheckCode::UP003,
+            CheckKind::TypeOfPrimitive(..) => &CheckCode::UP003,
             CheckKind::UselessMetaclassType => &CheckCode::UP001,
             CheckKind::DeprecatedUnittestAlias(..) => &CheckCode::UP005,
-            CheckKind::UsePEP585Annotation(_) => &CheckCode::UP006,
+            CheckKind::UsePEP585Annotation(..) => &CheckCode::UP006,
             CheckKind::UsePEP604Annotation => &CheckCode::UP007,
-            CheckKind::UselessObjectInheritance(_) => &CheckCode::UP004,
+            CheckKind::UselessObjectInheritance(..) => &CheckCode::UP004,
             CheckKind::SuperCallWithParameters => &CheckCode::UP008,
             CheckKind::PEP3120UnnecessaryCodingComment => &CheckCode::UP009,
-            CheckKind::UnnecessaryFutureImport(_) => &CheckCode::UP010,
+            CheckKind::UnnecessaryFutureImport(..) => &CheckCode::UP010,
             CheckKind::UnnecessaryLRUCacheParams => &CheckCode::UP011,
             CheckKind::UnnecessaryEncodeUTF8 => &CheckCode::UP012,
-            CheckKind::ConvertTypedDictFunctionalToClass(_) => &CheckCode::UP013,
-            CheckKind::ConvertNamedTupleFunctionalToClass(_) => &CheckCode::UP014,
+            CheckKind::ConvertTypedDictFunctionalToClass(..) => &CheckCode::UP013,
+            CheckKind::ConvertNamedTupleFunctionalToClass(..) => &CheckCode::UP014,
             CheckKind::RedundantOpenModes => &CheckCode::UP015,
+            CheckKind::RemoveSixCompat => &CheckCode::UP016,
+            CheckKind::DatetimeTimezoneUTC => &CheckCode::UP017,
+            CheckKind::NativeLiterals => &CheckCode::UP018,
             // pydocstyle
-            CheckKind::BlankLineAfterLastSection(_) => &CheckCode::D413,
-            CheckKind::BlankLineAfterSection(_) => &CheckCode::D410,
-            CheckKind::BlankLineBeforeSection(_) => &CheckCode::D411,
-            CheckKind::CapitalizeSectionName(_) => &CheckCode::D405,
-            CheckKind::DashedUnderlineAfterSection(_) => &CheckCode::D407,
-            CheckKind::DocumentAllArguments(_) => &CheckCode::D417,
+            CheckKind::BlankLineAfterLastSection(..) => &CheckCode::D413,
+            CheckKind::BlankLineAfterSection(..) => &CheckCode::D410,
+            CheckKind::BlankLineBeforeSection(..) => &CheckCode::D411,
+            CheckKind::CapitalizeSectionName(..) => &CheckCode::D405,
+            CheckKind::DashedUnderlineAfterSection(..) => &CheckCode::D407,
+            CheckKind::DocumentAllArguments(..) => &CheckCode::D417,
             CheckKind::EndsInPeriod => &CheckCode::D400,
             CheckKind::EndsInPunctuation => &CheckCode::D415,
             CheckKind::FirstLineCapitalized => &CheckCode::D403,
@@ -1657,21 +1859,21 @@ impl CheckKind {
             CheckKind::MultiLineSummaryFirstLine => &CheckCode::D212,
             CheckKind::MultiLineSummarySecondLine => &CheckCode::D213,
             CheckKind::NewLineAfterLastParagraph => &CheckCode::D209,
-            CheckKind::NewLineAfterSectionName(_) => &CheckCode::D406,
-            CheckKind::NoBlankLineAfterFunction(_) => &CheckCode::D202,
+            CheckKind::NewLineAfterSectionName(..) => &CheckCode::D406,
+            CheckKind::NoBlankLineAfterFunction(..) => &CheckCode::D202,
             CheckKind::BlankLineAfterSummary => &CheckCode::D205,
-            CheckKind::NoBlankLineBeforeClass(_) => &CheckCode::D211,
-            CheckKind::NoBlankLineBeforeFunction(_) => &CheckCode::D201,
-            CheckKind::NoBlankLinesBetweenHeaderAndContent(_) => &CheckCode::D412,
+            CheckKind::NoBlankLineBeforeClass(..) => &CheckCode::D211,
+            CheckKind::NoBlankLineBeforeFunction(..) => &CheckCode::D201,
+            CheckKind::NoBlankLinesBetweenHeaderAndContent(..) => &CheckCode::D412,
             CheckKind::NoOverIndentation => &CheckCode::D208,
             CheckKind::NoSignature => &CheckCode::D402,
             CheckKind::NoSurroundingWhitespace => &CheckCode::D210,
             CheckKind::NoThisPrefix => &CheckCode::D404,
             CheckKind::NoUnderIndentation => &CheckCode::D207,
             CheckKind::NonEmpty => &CheckCode::D419,
-            CheckKind::NonEmptySection(_) => &CheckCode::D414,
-            CheckKind::OneBlankLineAfterClass(_) => &CheckCode::D204,
-            CheckKind::OneBlankLineBeforeClass(_) => &CheckCode::D203,
+            CheckKind::NonEmptySection(..) => &CheckCode::D414,
+            CheckKind::OneBlankLineAfterClass(..) => &CheckCode::D204,
+            CheckKind::OneBlankLineBeforeClass(..) => &CheckCode::D203,
             CheckKind::PublicClass => &CheckCode::D101,
             CheckKind::PublicFunction => &CheckCode::D103,
             CheckKind::PublicInit => &CheckCode::D107,
@@ -1679,17 +1881,18 @@ impl CheckKind {
             CheckKind::PublicModule => &CheckCode::D100,
             CheckKind::PublicNestedClass => &CheckCode::D106,
             CheckKind::PublicPackage => &CheckCode::D104,
-            CheckKind::SectionNameEndsInColon(_) => &CheckCode::D416,
-            CheckKind::SectionNotOverIndented(_) => &CheckCode::D214,
-            CheckKind::SectionUnderlineAfterName(_) => &CheckCode::D408,
-            CheckKind::SectionUnderlineMatchesSectionLength(_) => &CheckCode::D409,
-            CheckKind::SectionUnderlineNotOverIndented(_) => &CheckCode::D215,
+            CheckKind::SectionNameEndsInColon(..) => &CheckCode::D416,
+            CheckKind::SectionNotOverIndented(..) => &CheckCode::D214,
+            CheckKind::SectionUnderlineAfterName(..) => &CheckCode::D408,
+            CheckKind::SectionUnderlineMatchesSectionLength(..) => &CheckCode::D409,
+            CheckKind::SectionUnderlineNotOverIndented(..) => &CheckCode::D215,
             CheckKind::SkipDocstring => &CheckCode::D418,
+            CheckKind::UsesRPrefixForBackslashedContent => &CheckCode::D301,
             CheckKind::UsesTripleQuotes => &CheckCode::D300,
             // pep8-naming
-            CheckKind::InvalidClassName(_) => &CheckCode::N801,
-            CheckKind::InvalidFunctionName(_) => &CheckCode::N802,
-            CheckKind::InvalidArgumentName(_) => &CheckCode::N803,
+            CheckKind::InvalidClassName(..) => &CheckCode::N801,
+            CheckKind::InvalidFunctionName(..) => &CheckCode::N802,
+            CheckKind::InvalidArgumentName(..) => &CheckCode::N803,
             CheckKind::InvalidFirstArgumentNameForClassMethod => &CheckCode::N804,
             CheckKind::InvalidFirstArgumentNameForMethod => &CheckCode::N805,
             CheckKind::NonLowercaseVariableInFunction(..) => &CheckCode::N806,
@@ -1721,6 +1924,8 @@ impl CheckKind {
             CheckKind::BooleanPositionalValueInFunctionCall => &CheckCode::FBT003,
             // pygrep-hooks
             CheckKind::NoEval => &CheckCode::PGH001,
+            CheckKind::DeprecatedLogWarn => &CheckCode::PGH002,
+            CheckKind::BlanketTypeIgnore => &CheckCode::PGH003,
             // flake8-unused-arguments
             CheckKind::UnusedFunctionArgument(..) => &CheckCode::ARG001,
             CheckKind::UnusedMethodArgument(..) => &CheckCode::ARG002,
@@ -1729,11 +1934,38 @@ impl CheckKind {
             CheckKind::UnusedLambdaArgument(..) => &CheckCode::ARG005,
             // flake8-import-conventions
             CheckKind::ImportAliasIsNotConventional(..) => &CheckCode::ICN001,
+            // pandas-vet
+            CheckKind::UseOfInplaceArgument => &CheckCode::PD002,
+            CheckKind::UseOfDotIsNull => &CheckCode::PD003,
+            CheckKind::UseOfDotNotNull => &CheckCode::PD004,
+            CheckKind::UseOfDotIx => &CheckCode::PD007,
+            CheckKind::UseOfDotAt => &CheckCode::PD008,
+            CheckKind::UseOfDotIat => &CheckCode::PD009,
+            CheckKind::UseOfDotPivotOrUnstack => &CheckCode::PD010,
+            CheckKind::UseOfDotValues => &CheckCode::PD011,
+            CheckKind::UseOfDotReadTable => &CheckCode::PD012,
+            CheckKind::UseOfDotStack => &CheckCode::PD013,
+            CheckKind::UseOfPdMerge => &CheckCode::PD015,
+            CheckKind::DfIsABadVariableName => &CheckCode::PD901,
+            // flake8-errmsg
+            CheckKind::RawStringInException => &CheckCode::EM101,
+            CheckKind::FStringInException => &CheckCode::EM102,
+            CheckKind::DotFormatInException => &CheckCode::EM103,
+            // flake8-datetimez
+            CheckKind::CallDatetimeWithoutTzinfo => &CheckCode::DTZ001,
+            CheckKind::CallDatetimeToday => &CheckCode::DTZ002,
+            CheckKind::CallDatetimeUtcnow => &CheckCode::DTZ003,
+            CheckKind::CallDatetimeUtcfromtimestamp => &CheckCode::DTZ004,
+            CheckKind::CallDatetimeNowWithoutTzinfo => &CheckCode::DTZ005,
+            CheckKind::CallDatetimeFromtimestamp => &CheckCode::DTZ006,
+            CheckKind::CallDatetimeStrptimeWithoutZone => &CheckCode::DTZ007,
+            CheckKind::CallDateToday => &CheckCode::DTZ011,
+            CheckKind::CallDateFromtimestamp => &CheckCode::DTZ012,
             // Ruff
             CheckKind::AmbiguousUnicodeCharacterString(..) => &CheckCode::RUF001,
             CheckKind::AmbiguousUnicodeCharacterDocstring(..) => &CheckCode::RUF002,
             CheckKind::AmbiguousUnicodeCharacterComment(..) => &CheckCode::RUF003,
-            CheckKind::UnusedNOQA(_) => &CheckCode::RUF100,
+            CheckKind::UnusedNOQA(..) => &CheckCode::RUF100,
         }
     }
 
@@ -1805,6 +2037,7 @@ impl CheckKind {
             CheckKind::ModuleImportNotAtTopOfFile => {
                 "Module level import not at top of file".to_string()
             }
+            CheckKind::MultipleImportsOnOneLine => "Multiple imports on one line".to_string(),
             CheckKind::MultiValueRepeatedKeyLiteral => {
                 "Dictionary key literal repeated".to_string()
             }
@@ -1902,6 +2135,9 @@ impl CheckKind {
             CheckKind::UndefinedName(name) => {
                 format!("Undefined name `{name}`")
             }
+            CheckKind::UnusedAnnotation(name) => {
+                format!("Local variable `{name}` is annotated but never used")
+            }
             CheckKind::UnusedImport(name, ignore_init) => {
                 if *ignore_init {
                     format!(
@@ -1931,8 +2167,11 @@ impl CheckKind {
                 let types = types.join(", ");
                 format!("Merge these isinstance calls: `isinstance({obj}, ({types}))`")
             }
-            CheckKind::MisplacedComparisonConstant(comprison) => {
-                format!("Comparison should be {comprison}")
+            CheckKind::MisplacedComparisonConstant(comparison) => {
+                format!("Comparison should be {comparison}")
+            }
+            CheckKind::NonlocalWithoutBinding(name) => {
+                format!("Nonlocal name `{name}` found without binding")
             }
             CheckKind::UnnecessaryDirectLambdaCall => "Lambda expression called directly. Execute \
                                                        the expression inline instead."
@@ -1942,6 +2181,12 @@ impl CheckKind {
             }
             CheckKind::ConsiderUsingFromImport(module, name) => {
                 format!("Use `from {module} import {name}` in lieu of alias")
+            }
+            CheckKind::UsedPriorGlobalDeclaration(name, line) => {
+                format!("Name `{name}` is used prior to global declaration on line {line}")
+            }
+            CheckKind::GlobalVariableNotAssigned(name) => {
+                format!("Using global for `{name}` but no assignment is done")
             }
             CheckKind::AwaitOutsideAsync => {
                 "`await` should be used within an async function".to_string()
@@ -2235,8 +2480,8 @@ impl CheckKind {
             CheckKind::MissingReturnTypePrivateFunction(name) => {
                 format!("Missing return type annotation for private function `{name}`")
             }
-            CheckKind::MissingReturnTypeMagicMethod(name) => {
-                format!("Missing return type annotation for magic method `{name}`")
+            CheckKind::MissingReturnTypeSpecialMethod(name) => {
+                format!("Missing return type annotation for special method `{name}`")
             }
             CheckKind::MissingReturnTypeStaticMethod(name) => {
                 format!("Missing return type annotation for staticmethod `{name}`")
@@ -2279,6 +2524,10 @@ impl CheckKind {
             CheckKind::SysVersionSlice1Referenced => {
                 "`sys.version[:1]` referenced (python10), use `sys.version_info`".to_string()
             }
+            // flake8-simplify
+            CheckKind::KeyInDict(key, dict) => {
+                format!("Use `{key} in {dict}` instead of `{key} in {dict}.keys()`")
+            }
             // pyupgrade
             CheckKind::TypeOfPrimitive(primitive) => {
                 format!("Use `{}` instead of `type(...)`", primitive.builtin())
@@ -2315,6 +2564,9 @@ impl CheckKind {
             }
             CheckKind::UnnecessaryEncodeUTF8 => "Unnecessary call to `encode` as UTF-8".to_string(),
             CheckKind::RedundantOpenModes => "Unnecessary open mode parameters".to_string(),
+            CheckKind::RemoveSixCompat => "Unnecessary `six` compatibility usage".to_string(),
+            CheckKind::DatetimeTimezoneUTC => "Use `datetime.UTC` alias".to_string(),
+            CheckKind::NativeLiterals => "Unnecessary call to `str` and `bytes`".to_string(),
             CheckKind::ConvertTypedDictFunctionalToClass(name) => {
                 format!("Convert `{name}` from `TypedDict` functional to class syntax")
             }
@@ -2340,6 +2592,9 @@ impl CheckKind {
             CheckKind::FirstLineCapitalized => {
                 "First word of the first line should be properly capitalized".to_string()
             }
+            CheckKind::UsesRPrefixForBackslashedContent => {
+                r#"Use r""" if any backslashes in a docstring"#.to_string()
+            }
             CheckKind::UsesTripleQuotes => r#"Use """triple double quotes""""#.to_string(),
             CheckKind::MultiLineSummaryFirstLine => {
                 "Multi-line docstring summary should start at the first line".to_string()
@@ -2356,13 +2611,13 @@ impl CheckKind {
             CheckKind::NoBlankLineAfterFunction(num_lines) => {
                 format!("No blank lines allowed after function docstring (found {num_lines})")
             }
-            CheckKind::NoBlankLineBeforeClass(_) => {
+            CheckKind::NoBlankLineBeforeClass(..) => {
                 "No blank lines allowed before class docstring".to_string()
             }
-            CheckKind::OneBlankLineBeforeClass(_) => {
+            CheckKind::OneBlankLineBeforeClass(..) => {
                 "1 blank line required before class docstring".to_string()
             }
-            CheckKind::OneBlankLineAfterClass(_) => {
+            CheckKind::OneBlankLineAfterClass(..) => {
                 "1 blank line required after class docstring".to_string()
             }
             CheckKind::PublicModule => "Missing docstring in public module".to_string(),
@@ -2521,6 +2776,12 @@ impl CheckKind {
             }
             // pygrep-hooks
             CheckKind::NoEval => "No builtin `eval()` allowed".to_string(),
+            CheckKind::DeprecatedLogWarn => {
+                "`warn` is deprecated in favor of `warning`".to_string()
+            }
+            CheckKind::BlanketTypeIgnore => {
+                "Use specific error codes when ignoring type issues".to_string()
+            }
             // flake8-unused-arguments
             CheckKind::UnusedFunctionArgument(name) => {
                 format!("Unused function argument: `{name}`")
@@ -2537,6 +2798,51 @@ impl CheckKind {
             CheckKind::ImportAliasIsNotConventional(name, asname) => {
                 format!("`{name}` should be imported as `{asname}`")
             }
+            // pandas-vet
+            CheckKind::UseOfInplaceArgument => {
+                "`inplace=True` should be avoided; it has inconsistent behavior".to_string()
+            }
+            CheckKind::UseOfDotIsNull => {
+                "`.isna` is preferred to `.isnull`; functionality is equivalent".to_string()
+            }
+            CheckKind::UseOfDotNotNull => {
+                "`.notna` is preferred to `.notnull`; functionality is equivalent".to_string()
+            }
+            CheckKind::UseOfDotIx => {
+                "`.ix` is deprecated; use more explicit `.loc` or `.iloc`".to_string()
+            }
+            CheckKind::UseOfDotAt => {
+                "Use `.loc` instead of `.at`.  If speed is important, use numpy.".to_string()
+            }
+            CheckKind::UseOfDotIat => {
+                "Use `.iloc` instead of `.iat`.  If speed is important, use numpy.".to_string()
+            }
+            CheckKind::UseOfDotPivotOrUnstack => "`.pivot_table` is preferred to `.pivot` or \
+                                                  `.unstack`; provides same functionality"
+                .to_string(),
+            CheckKind::UseOfDotValues => "Use `.to_numpy()` instead of `.values`".to_string(),
+            CheckKind::UseOfDotReadTable => {
+                "`.read_csv` is preferred to `.read_table`; provides same functionality".to_string()
+            }
+            CheckKind::UseOfDotStack => {
+                "`.melt` is preferred to `.stack`; provides same functionality".to_string()
+            }
+            CheckKind::DfIsABadVariableName => {
+                "`df` is a bad variable name. Be kinder to your future self.".to_string()
+            }
+            CheckKind::UseOfPdMerge => "Use `.merge` method instead of `pd.merge` function. They \
+                                        have equivalent functionality."
+                .to_string(),
+            // flake8-errmsg
+            CheckKind::RawStringInException => {
+                "Exception must not use a string literal, assign to variable first".to_string()
+            }
+            CheckKind::FStringInException => {
+                "Exception must not use an f-string literal, assign to variable first".to_string()
+            }
+            CheckKind::DotFormatInException => "Exception must not use a `.format()` string \
+                                                directly, assign to variable first"
+                .to_string(),
             // Ruff
             CheckKind::AmbiguousUnicodeCharacterString(confusable, representant) => {
                 format!(
@@ -2557,21 +2863,81 @@ impl CheckKind {
                 )
             }
             CheckKind::UnusedNOQA(codes) => match codes {
-                None => "Unused `noqa` directive".to_string(),
+                None => "Unused blanket `noqa` directive".to_string(),
                 Some(codes) => {
-                    let codes = codes
-                        .iter()
-                        .map(|code| {
-                            if CheckCode::from_str(code).is_ok() {
-                                code.to_string()
-                            } else {
-                                format!("{code} (not implemented)")
-                            }
-                        })
-                        .join(", ");
-                    format!("Unused `noqa` directive for: {codes}")
+                    let mut codes_by_reason = vec![];
+                    if !codes.unmatched.is_empty() {
+                        codes_by_reason.push(format!(
+                            "unused: {}",
+                            codes
+                                .unmatched
+                                .iter()
+                                .map(|code| format!("`{code}`"))
+                                .join(", ")
+                        ));
+                    }
+                    if !codes.disabled.is_empty() {
+                        codes_by_reason.push(format!(
+                            "non-enabled: {}",
+                            codes
+                                .disabled
+                                .iter()
+                                .map(|code| format!("`{code}`"))
+                                .join(", ")
+                        ));
+                    }
+                    if !codes.unknown.is_empty() {
+                        codes_by_reason.push(format!(
+                            "unknown: {}",
+                            codes
+                                .unknown
+                                .iter()
+                                .map(|code| format!("`{code}`"))
+                                .join(", ")
+                        ));
+                    }
+                    if codes_by_reason.is_empty() {
+                        "Unused `noqa` directive".to_string()
+                    } else {
+                        format!("Unused `noqa` directive ({})", codes_by_reason.join("; "))
+                    }
                 }
             },
+            // flake8-datetimez
+            CheckKind::CallDatetimeWithoutTzinfo => "The use of `datetime.datetime()` without \
+                                                     `tzinfo` argument is not allowed"
+                .to_string(),
+            CheckKind::CallDatetimeToday => "The use of `datetime.datetime.today()` is not \
+                                             allowed. Use `datetime.datetime.now(tz=)` instead."
+                .to_string(),
+            CheckKind::CallDatetimeUtcnow => "The use of `datetime.datetime.utcnow()` is not \
+                                              allowed. Use `datetime.datetime.now(tz=)` instead."
+                .to_string(),
+            CheckKind::CallDatetimeUtcfromtimestamp => {
+                "The use of `datetime.datetime.utcfromtimestamp()` is not allowed. Use \
+                 `datetime.datetime.fromtimestamp(, tz=)` instead."
+                    .to_string()
+            }
+            CheckKind::CallDatetimeNowWithoutTzinfo => "The use of `datetime.datetime.now()` \
+                                                        without `tz` argument is not allowed"
+                .to_string(),
+            CheckKind::CallDatetimeFromtimestamp => "The use of \
+                                                     `datetime.datetime.fromtimestamp()` without \
+                                                     `tz` argument is not allowed"
+                .to_string(),
+            CheckKind::CallDatetimeStrptimeWithoutZone => {
+                "The use of `datetime.datetime.strptime()` without %z must be followed by \
+                 `.replace(tzinfo=)`"
+                    .to_string()
+            }
+            CheckKind::CallDateToday => "The use of `datetime.date.today()` is not allowed. Use \
+                                         `datetime.datetime.now(tz=).date()` instead."
+                .to_string(),
+            CheckKind::CallDateFromtimestamp => {
+                "The use of `datetime.date.fromtimestamp()` is not allowed. Use \
+                 `datetime.datetime.fromtimestamp(, tz=).date()` instead."
+                    .to_string()
+            }
         }
     }
 
@@ -2590,6 +2956,23 @@ impl CheckKind {
             }
             CheckKind::StarArgUnpackingAfterKeywordArg => {
                 "Star-arg unpacking after a keyword argument is strongly discouraged".to_string()
+            }
+
+            // flake8-datetimez
+            CheckKind::CallDatetimeToday => {
+                "The use of `datetime.datetime.today()` is not allowed".to_string()
+            }
+            CheckKind::CallDatetimeUtcnow => {
+                "The use of `datetime.datetime.utcnow()` is not allowed".to_string()
+            }
+            CheckKind::CallDatetimeUtcfromtimestamp => {
+                "The use of `datetime.datetime.utcfromtimestamp()` is not allowed".to_string()
+            }
+            CheckKind::CallDateToday => {
+                "The use of `datetime.date.today()` is not allowed.".to_string()
+            }
+            CheckKind::CallDateFromtimestamp => {
+                "The use of `datetime.date.fromtimestamp()` is not allowed".to_string()
             }
             _ => self.body(),
         }
@@ -2610,6 +2993,7 @@ impl CheckKind {
                 | CheckKind::ConvertNamedTupleFunctionalToClass(..)
                 | CheckKind::ConvertTypedDictFunctionalToClass(..)
                 | CheckKind::DashedUnderlineAfterSection(..)
+                | CheckKind::DatetimeTimezoneUTC
                 | CheckKind::DeprecatedUnittestAlias(..)
                 | CheckKind::DoNotAssertFalse
                 | CheckKind::DoNotAssignLambda
@@ -2619,14 +3003,19 @@ impl CheckKind {
                 | CheckKind::GetAttrWithConstant
                 | CheckKind::ImplicitReturn
                 | CheckKind::ImplicitReturnValue
+                | CheckKind::InvalidEscapeSequence(..)
                 | CheckKind::IsLiteral
+                | CheckKind::KeyInDict(..)
                 | CheckKind::MisplacedComparisonConstant(..)
+                | CheckKind::MissingReturnTypeSpecialMethod(..)
+                | CheckKind::NativeLiterals
                 | CheckKind::NewLineAfterLastParagraph
                 | CheckKind::NewLineAfterSectionName(..)
                 | CheckKind::NoBlankLineAfterFunction(..)
                 | CheckKind::NoBlankLineBeforeClass(..)
                 | CheckKind::NoBlankLineBeforeFunction(..)
                 | CheckKind::NoBlankLinesBetweenHeaderAndContent(..)
+                | CheckKind::NoNewLineAtEndOfFile
                 | CheckKind::NoOverIndentation
                 | CheckKind::NoSurroundingWhitespace
                 | CheckKind::NoUnderIndentation
@@ -2637,19 +3026,23 @@ impl CheckKind {
                 | CheckKind::OneBlankLineBeforeClass(..)
                 | CheckKind::PEP3120UnnecessaryCodingComment
                 | CheckKind::PPrintFound
+                | CheckKind::PercentFormatExtraNamedArguments(..)
                 | CheckKind::PrintFound
                 | CheckKind::RaiseNotImplemented
                 | CheckKind::RedundantOpenModes
                 | CheckKind::RedundantTupleInExceptionHandler(..)
+                | CheckKind::RemoveSixCompat
                 | CheckKind::SectionNameEndsInColon(..)
                 | CheckKind::SectionNotOverIndented(..)
                 | CheckKind::SectionUnderlineAfterName(..)
                 | CheckKind::SectionUnderlineMatchesSectionLength(..)
                 | CheckKind::SectionUnderlineNotOverIndented(..)
                 | CheckKind::SetAttrWithConstant
+                | CheckKind::StringDotFormatExtraNamedArguments(..)
                 | CheckKind::SuperCallWithParameters
                 | CheckKind::TrueFalseComparison(..)
                 | CheckKind::TypeOfPrimitive(..)
+                | CheckKind::UnnecessaryCallAroundSorted(..)
                 | CheckKind::UnnecessaryCollectionCall(..)
                 | CheckKind::UnnecessaryComprehension(..)
                 | CheckKind::UnnecessaryEncodeUTF8
@@ -2703,6 +3096,81 @@ impl Check {
     }
 }
 
+/// A hash map from deprecated `CheckCodePrefix` to latest `CheckCodePrefix`.
+pub static PREFIX_REDIRECTS: Lazy<FxHashMap<&'static str, CheckCodePrefix>> = Lazy::new(|| {
+    FxHashMap::from_iter([
+        // TODO(charlie): Remove by 2023-01-01.
+        ("U001", CheckCodePrefix::UP001),
+        ("U003", CheckCodePrefix::UP003),
+        ("U004", CheckCodePrefix::UP004),
+        ("U005", CheckCodePrefix::UP005),
+        ("U006", CheckCodePrefix::UP006),
+        ("U007", CheckCodePrefix::UP007),
+        ("U008", CheckCodePrefix::UP008),
+        ("U009", CheckCodePrefix::UP009),
+        ("U010", CheckCodePrefix::UP010),
+        ("U011", CheckCodePrefix::UP011),
+        ("U012", CheckCodePrefix::UP012),
+        ("U013", CheckCodePrefix::UP013),
+        ("U014", CheckCodePrefix::UP014),
+        ("U015", CheckCodePrefix::UP015),
+        ("U016", CheckCodePrefix::UP016),
+        ("U017", CheckCodePrefix::UP017),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("I252", CheckCodePrefix::TID252),
+        ("M001", CheckCodePrefix::RUF100),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("PDV002", CheckCodePrefix::PD002),
+        ("PDV003", CheckCodePrefix::PD003),
+        ("PDV004", CheckCodePrefix::PD004),
+        ("PDV007", CheckCodePrefix::PD007),
+        ("PDV008", CheckCodePrefix::PD008),
+        ("PDV009", CheckCodePrefix::PD009),
+        ("PDV010", CheckCodePrefix::PD010),
+        ("PDV011", CheckCodePrefix::PD011),
+        ("PDV012", CheckCodePrefix::PD012),
+        ("PDV013", CheckCodePrefix::PD013),
+        ("PDV015", CheckCodePrefix::PD015),
+        ("PDV901", CheckCodePrefix::PD901),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("R501", CheckCodePrefix::RET501),
+        ("R502", CheckCodePrefix::RET502),
+        ("R503", CheckCodePrefix::RET503),
+        ("R504", CheckCodePrefix::RET504),
+        ("R505", CheckCodePrefix::RET505),
+        ("R506", CheckCodePrefix::RET506),
+        ("R507", CheckCodePrefix::RET507),
+        ("R508", CheckCodePrefix::RET508),
+        ("IC001", CheckCodePrefix::ICN001),
+        ("IC002", CheckCodePrefix::ICN001),
+        ("IC003", CheckCodePrefix::ICN001),
+        ("IC004", CheckCodePrefix::ICN001),
+        // TODO(charlie): Remove by 2023-01-01.
+        ("U", CheckCodePrefix::UP),
+        ("U0", CheckCodePrefix::UP0),
+        ("U00", CheckCodePrefix::UP00),
+        ("U01", CheckCodePrefix::UP01),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("I2", CheckCodePrefix::TID2),
+        ("I25", CheckCodePrefix::TID25),
+        ("M", CheckCodePrefix::RUF100),
+        ("M0", CheckCodePrefix::RUF100),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("PDV", CheckCodePrefix::PD),
+        ("PDV0", CheckCodePrefix::PD0),
+        ("PDV01", CheckCodePrefix::PD01),
+        ("PDV9", CheckCodePrefix::PD9),
+        ("PDV90", CheckCodePrefix::PD90),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("R", CheckCodePrefix::RET),
+        ("R5", CheckCodePrefix::RET5),
+        ("R50", CheckCodePrefix::RET50),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("IC", CheckCodePrefix::ICN),
+        ("IC0", CheckCodePrefix::ICN0),
+    ])
+});
+
 /// A hash map from deprecated to latest `CheckCode`.
 pub static CODE_REDIRECTS: Lazy<FxHashMap<&'static str, CheckCode>> = Lazy::new(|| {
     FxHashMap::from_iter([
@@ -2721,25 +3189,38 @@ pub static CODE_REDIRECTS: Lazy<FxHashMap<&'static str, CheckCode>> = Lazy::new(
         ("U013", CheckCode::UP013),
         ("U014", CheckCode::UP014),
         ("U015", CheckCode::UP015),
+        ("U016", CheckCode::UP016),
+        ("U017", CheckCode::UP017),
         // TODO(charlie): Remove by 2023-02-01.
         ("I252", CheckCode::TID252),
         ("M001", CheckCode::RUF100),
-    ])
-});
-
-/// A hash map from deprecated `CheckCodePrefix` to latest `CheckCodePrefix`.
-pub static PREFIX_REDIRECTS: Lazy<FxHashMap<&'static str, &'static str>> = Lazy::new(|| {
-    FxHashMap::from_iter([
-        // TODO(charlie): Remove by 2023-01-01.
-        ("U", "UP"),
-        ("U0", "UP0"),
-        ("U00", "UP00"),
-        ("U01", "UP01"),
         // TODO(charlie): Remove by 2023-02-01.
-        ("I2", "TID2"),
-        ("I25", "TID25"),
-        ("M", "RUF100"),
-        ("M0", "RUF100"),
+        ("PDV002", CheckCode::PD002),
+        ("PDV003", CheckCode::PD003),
+        ("PDV004", CheckCode::PD004),
+        ("PDV007", CheckCode::PD007),
+        ("PDV008", CheckCode::PD008),
+        ("PDV009", CheckCode::PD009),
+        ("PDV010", CheckCode::PD010),
+        ("PDV011", CheckCode::PD011),
+        ("PDV012", CheckCode::PD012),
+        ("PDV013", CheckCode::PD013),
+        ("PDV015", CheckCode::PD015),
+        ("PDV901", CheckCode::PD901),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("R501", CheckCode::RET501),
+        ("R502", CheckCode::RET502),
+        ("R503", CheckCode::RET503),
+        ("R504", CheckCode::RET504),
+        ("R505", CheckCode::RET505),
+        ("R506", CheckCode::RET506),
+        ("R507", CheckCode::RET507),
+        ("R508", CheckCode::RET508),
+        // TODO(charlie): Remove by 2023-02-01.
+        ("IC001", CheckCode::ICN001),
+        ("IC002", CheckCode::ICN001),
+        ("IC003", CheckCode::ICN001),
+        ("IC004", CheckCode::ICN001),
     ])
 });
 

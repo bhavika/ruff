@@ -23,7 +23,7 @@ fn test_stdin_error() -> Result<()> {
         .failure();
     assert_eq!(
         str::from_utf8(&output.get_output().stdout)?,
-        "Found 1 error(s).\n-:1:8: F401 `os` imported but unused\n1 potentially fixable with the \
+        "-:1:8: F401 `os` imported but unused\nFound 1 error(s).\n1 potentially fixable with the \
          --fix option.\n"
     );
     Ok(())
@@ -39,7 +39,7 @@ fn test_stdin_filename() -> Result<()> {
         .failure();
     assert_eq!(
         str::from_utf8(&output.get_output().stdout)?,
-        "Found 1 error(s).\nF401.py:1:8: F401 `os` imported but unused\n1 potentially fixable \
+        "F401.py:1:8: F401 `os` imported but unused\nFound 1 error(s).\n1 potentially fixable \
          with the --fix option.\n"
     );
     Ok(())
@@ -55,12 +55,33 @@ fn test_stdin_json() -> Result<()> {
         .failure();
     assert_eq!(
         str::from_utf8(&output.get_output().stdout)?,
-        "[\n  {\n    \"code\": \"F401\",\n    \"message\": \"`os` imported but unused\",\n    \
-         \"fix\": {\n      \"content\": \"\",\n      \"location\": {\n        \"row\": 1,\n        \
-         \"column\": 0\n      },\n      \"end_location\": {\n        \"row\": 2,\n        \
-         \"column\": 0\n      }\n    },\n    \"location\": {\n      \"row\": 1,\n      \
-         \"column\": 8\n    },\n    \"end_location\": {\n      \"row\": 1,\n      \"column\": \
-         10\n    },\n    \"filename\": \"F401.py\"\n  }\n]\n"
+        r#"[
+  {
+    "code": "F401",
+    "message": "`os` imported but unused",
+    "fix": {
+      "content": "",
+      "location": {
+        "row": 1,
+        "column": 0
+      },
+      "end_location": {
+        "row": 2,
+        "column": 0
+      }
+    },
+    "location": {
+      "row": 1,
+      "column": 8
+    },
+    "end_location": {
+      "row": 1,
+      "column": 10
+    },
+    "filename": "F401.py"
+  }
+]
+"#
     );
     Ok(())
 }

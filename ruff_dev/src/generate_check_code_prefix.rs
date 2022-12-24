@@ -1,17 +1,17 @@
 //! Generate the `CheckCodePrefix` enum.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::OpenOptions;
+use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
+use std::process::{Command, Output, Stdio};
 
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use clap::Parser;
 use codegen::{Scope, Type, Variant};
 use itertools::Itertools;
-use ruff::checks::{CheckCode, CODE_REDIRECTS, PREFIX_REDIRECTS};
+use ruff::checks::{CheckCode, PREFIX_REDIRECTS};
 use strum::IntoEnumIterator;
-
-const FILE: &str = "src/checks_gen.rs";
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -40,18 +40,7 @@ pub fn main(cli: &Cli) -> Result<()> {
     }
 
     // Add any prefix aliases (e.g., "U" to "UP").
-    for (alias, source) in PREFIX_REDIRECTS.iter() {
-        prefix_to_codes.insert(
-            (*alias).to_string(),
-            prefix_to_codes
-                .get(&(*source).to_string())
-                .unwrap_or_else(|| panic!("Unknown CheckCode: {source:?}"))
-                .clone(),
-        );
-    }
-
-    // Add any check code aliases (e.g., "U001" to "UP001").
-    for (alias, check_code) in CODE_REDIRECTS.iter() {
+    for (alias, check_code) in PREFIX_REDIRECTS.iter() {
         prefix_to_codes.insert(
             (*alias).to_string(),
             prefix_to_codes
@@ -76,7 +65,8 @@ pub fn main(cli: &Cli) -> Result<()> {
         .derive("Ord")
         .derive("Clone")
         .derive("Serialize")
-        .derive("Deserialize");
+        .derive("Deserialize")
+        .derive("JsonSchema");
     for prefix in prefix_to_codes.keys() {
         gen = gen.push_variant(Variant::new(prefix.to_string()));
     }
@@ -105,25 +95,13 @@ pub fn main(cli: &Cli) -> Result<()> {
         .line("#[allow(clippy::match_same_arms)]")
         .line("match self {");
     for (prefix, codes) in &prefix_to_codes {
-        if let Some(target) = CODE_REDIRECTS.get(&prefix.as_str()) {
+        if let Some(target) = PREFIX_REDIRECTS.get(&prefix.as_str()) {
             gen = gen.line(format!(
-                "CheckCodePrefix::{prefix} => {{ eprintln!(\"{{}}{{}} {{}}\", \
+                "CheckCodePrefix::{prefix} => {{ one_time_warning!(\"{{}}{{}} {{}}\", \
                  \"warning\".yellow().bold(), \":\".bold(), \"`{}` has been remapped to \
                  `{}`\".bold()); \n vec![{}] }}",
                 prefix,
                 target.as_ref(),
-                codes
-                    .iter()
-                    .map(|code| format!("CheckCode::{}", code.as_ref()))
-                    .join(", ")
-            ));
-        } else if let Some(target) = PREFIX_REDIRECTS.get(&prefix.as_str()) {
-            gen = gen.line(format!(
-                "CheckCodePrefix::{prefix} => {{ eprintln!(\"{{}}{{}} {{}}\", \
-                 \"warning\".yellow().bold(), \":\".bold(), \"`{}` has been remapped to \
-                 `{}`\".bold()); \n vec![{}] }}",
-                prefix,
-                target,
                 codes
                     .iter()
                     .map(|code| format!("CheckCode::{}", code.as_ref()))
@@ -161,8 +139,7 @@ pub fn main(cli: &Cli) -> Result<()> {
             _ => panic!("Invalid prefix: {prefix}"),
         };
         gen = gen.line(format!(
-            "CheckCodePrefix::{prefix} => SuffixLength::{},",
-            specificity
+            "CheckCodePrefix::{prefix} => SuffixLength::{specificity},"
         ));
     }
     gen.line("}");
@@ -175,12 +152,16 @@ pub fn main(cli: &Cli) -> Result<()> {
     output.push('\n');
     output.push_str("use colored::Colorize;");
     output.push('\n');
+    output.push_str("use schemars::JsonSchema;");
+    output.push('\n');
     output.push_str("use serde::{Deserialize, Serialize};");
     output.push('\n');
     output.push_str("use strum_macros::{AsRefStr, EnumString};");
     output.push('\n');
     output.push('\n');
     output.push_str("use crate::checks::CheckCode;");
+    output.push('\n');
+    output.push_str("use crate::one_time_warning;");
     output.push('\n');
     output.push('\n');
     output.push_str(&scope.to_string());
@@ -202,12 +183,25 @@ pub fn main(cli: &Cli) -> Result<()> {
     output.push('\n');
     output.push('\n');
 
+    let rustfmt = Command::new("rustfmt")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    write!(rustfmt.stdin.as_ref().unwrap(), "{output}")?;
+    let Output { status, stdout, .. } = rustfmt.wait_with_output()?;
+    ensure!(status.success(), "rustfmt failed with {status}");
+
     // Write the output to `src/checks_gen.rs` (or stdout).
     if cli.dry_run {
-        println!("{output}");
+        println!("{}", String::from_utf8(stdout)?);
     } else {
-        let mut f = OpenOptions::new().write(true).truncate(true).open(FILE)?;
-        write!(f, "{output}")?;
+        let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Failed to find root directory")
+            .join("src/checks_gen.rs");
+        if fs::read(&file).map_or(true, |old| old != stdout) {
+            fs::write(&file, stdout)?;
+        }
     }
 
     Ok(())
