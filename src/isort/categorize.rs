@@ -12,8 +12,7 @@ pub enum ImportType {
     StandardLibrary,
     ThirdParty,
     FirstParty,
-    LocalFolder,
-    FirstInSection,
+    LocalFolder
 }
 
 #[derive(Debug)]

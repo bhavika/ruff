@@ -1,6 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use clap::builder::Str;
 
 use itertools::Itertools;
 use ropey::RopeBuilder;
@@ -379,8 +380,15 @@ fn sort_imports(block: ImportBlock) -> OrderedImportBlock {
         block
             .import
             .into_iter()
-            .sorted_by_cached_key(|(alias, _)| module_key(alias.name, alias.asname)),
+            .sorted_by_cached_key(|(alias, _)| module_key(alias.name, alias.asname))
+            // .sorted_by_key(|(k, _)| {
+            //     let idx = force_to_top.iter().position(|x| *x == k.name).unwrap();
+            //     idx as u64
+            // })
     );
+
+    // println!("lets see if chatgpt works");
+    // println!("{:?}", ordered.import.iter().collect());
 
     // Sort `StmtKind::ImportFrom`.
     ordered.import_from.extend(
@@ -489,6 +497,9 @@ pub fn format_imports(
     // Normalize imports (i.e., deduplicate, aggregate `from` imports).
     let block = normalize_imports(block, combine_as_imports);
 
+    println!("here");
+    println!("{:?}", block);
+
     // Categorize by type (e.g., first-party vs. third-party).
     let block_by_type = categorize_imports(
         block,
@@ -558,38 +569,37 @@ mod tests {
     use crate::linter::test_path;
     use crate::{isort, Settings};
 
-    #[test_case(Path::new("add_newline_before_comments.py"))]
-    #[test_case(Path::new("combine_as_imports.py"))]
-    #[test_case(Path::new("combine_import_froms.py"))]
-    #[test_case(Path::new("comments.py"))]
-    #[test_case(Path::new("deduplicate_imports.py"))]
-    #[test_case(Path::new("fit_line_length.py"))]
-    #[test_case(Path::new("fit_line_length_comment.py"))]
+    // #[test_case(Path::new("add_newline_before_comments.py"))]
+    // #[test_case(Path::new("combine_as_imports.py"))]
+    // #[test_case(Path::new("combine_import_froms.py"))]
+    // #[test_case(Path::new("comments.py"))]
+    // #[test_case(Path::new("deduplicate_imports.py"))]
+    // #[test_case(Path::new("fit_line_length.py"))]
+    // #[test_case(Path::new("fit_line_length_comment.py"))]
     #[test_case(Path::new("force_to_top.py"))]
-    #[test_case(Path::new("force_to_top_third_party.py"))]
-    #[test_case(Path::new("force_wrap_aliases.py"))]
-    #[test_case(Path::new("import_from_after_import.py"))]
-    #[test_case(Path::new("insert_empty_lines.py"))]
-    #[test_case(Path::new("insert_empty_lines.pyi"))]
-    #[test_case(Path::new("leading_prefix.py"))]
-    #[test_case(Path::new("no_reorder_within_section.py"))]
-    #[test_case(Path::new("no_wrap_star.py"))]
-    #[test_case(Path::new("order_by_type.py"))]
-    #[test_case(Path::new("order_relative_imports_by_level.py"))]
-    #[test_case(Path::new("preserve_comment_order.py"))]
-    #[test_case(Path::new("preserve_import_star.py"))]
-    #[test_case(Path::new("preserve_indentation.py"))]
-    #[test_case(Path::new("reorder_within_section.py"))]
-    #[test_case(Path::new("separate_first_party_imports.py"))]
-    #[test_case(Path::new("separate_future_imports.py"))]
-    #[test_case(Path::new("separate_local_folder_imports.py"))]
-    #[test_case(Path::new("separate_third_party_imports.py"))]
-    #[test_case(Path::new("skip.py"))]
-    #[test_case(Path::new("skip_file.py"))]
-    #[test_case(Path::new("sort_similar_imports.py"))]
-    #[test_case(Path::new("split.py"))]
-    #[test_case(Path::new("trailing_suffix.py"))]
-    #[test_case(Path::new("type_comments.py"))]
+    // #[test_case(Path::new("force_wrap_aliases.py"))]
+    // #[test_case(Path::new("import_from_after_import.py"))]
+    // #[test_case(Path::new("insert_empty_lines.py"))]
+    // #[test_case(Path::new("insert_empty_lines.pyi"))]
+    // #[test_case(Path::new("leading_prefix.py"))]
+    // #[test_case(Path::new("no_reorder_within_section.py"))]
+    // #[test_case(Path::new("no_wrap_star.py"))]
+    // #[test_case(Path::new("order_by_type.py"))]
+    // #[test_case(Path::new("order_relative_imports_by_level.py"))]
+    // #[test_case(Path::new("preserve_comment_order.py"))]
+    // #[test_case(Path::new("preserve_import_star.py"))]
+    // #[test_case(Path::new("preserve_indentation.py"))]
+    // #[test_case(Path::new("reorder_within_section.py"))]
+    // #[test_case(Path::new("separate_first_party_imports.py"))]
+    // #[test_case(Path::new("separate_future_imports.py"))]
+    // #[test_case(Path::new("separate_local_folder_imports.py"))]
+    // #[test_case(Path::new("separate_third_party_imports.py"))]
+    // #[test_case(Path::new("skip.py"))]
+    // #[test_case(Path::new("skip_file.py"))]
+    // #[test_case(Path::new("sort_similar_imports.py"))]
+    // #[test_case(Path::new("split.py"))]
+    // #[test_case(Path::new("trailing_suffix.py"))]
+    // #[test_case(Path::new("type_comments.py"))]
     fn default(path: &Path) -> Result<()> {
         let snapshot = format!("{}", path.to_string_lossy());
         let mut checks = test_path(
@@ -648,4 +658,27 @@ mod tests {
         insta::assert_yaml_snapshot!(snapshot, checks);
         Ok(())
     }
+
+    #[test_case(Path::new("force_to_top_third_party.py"))]
+    fn force_to_top_third_party(path: &Path) -> Result<()> {
+        let snapshot = format!("force_to_top_third_party_{}", path.to_string_lossy());
+        let mut checks = test_path(
+            Path::new("./resources/test/fixtures/isort")
+                .join(path)
+                .as_path(),
+            &Settings {
+                isort: isort::settings::Settings {
+                    force_to_top: vec!["third_party_module"].iter().map(|s| s.to_string()).collect(),
+                    combine_as_imports: true,
+                    ..isort::settings::Settings::default()
+                },
+                src: vec![Path::new("resources/test/fixtures/isort").to_path_buf()],
+                ..Settings::for_rule(CheckCode::I001)
+            },
+        )?;
+        checks.sort_by_key(|check| check.location);
+        insta::assert_yaml_snapshot!(snapshot, checks);
+        Ok(())
+    }
+
 }
