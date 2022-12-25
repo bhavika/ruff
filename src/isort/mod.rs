@@ -381,13 +381,8 @@ fn sort_imports(block: ImportBlock) -> OrderedImportBlock {
             .import
             .into_iter()
             .sorted_by_cached_key(|(alias, _)| module_key(alias.name, alias.asname))
-            // .sorted_by_key(|(k, _)| {
-            //     let idx = force_to_top.iter().position(|x| *x == k.name).unwrap();
-            //     idx as u64
-            // })
     );
 
-    // println!("lets see if chatgpt works");
     // println!("{:?}", ordered.import.iter().collect());
 
     // Sort `StmtKind::ImportFrom`.
